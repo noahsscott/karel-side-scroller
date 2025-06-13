@@ -77,6 +77,13 @@ BEEPER_POINTS = 10                  # Points awarded per beeper
 # Wall System Constants
 WALL_SIZE = 32                       # Wall width and height
 
+# Flagpole System Constants
+FLAGPOLE_X = 3100                    # Flagpole position near world end
+FLAGPOLE_WIDTH = 10                  # Flagpole pole width
+FLAGPOLE_HEIGHT = 200                # Flagpole total height
+FLAG_SIZE = 30                       # Flag dimensions
+FLAGPOLE_YELLOW = (255, 255, 100)    # Flagpole color
+
 # ============================================================================
 # GAME OBJECT CLASSES
 # ============================================================================
@@ -186,6 +193,68 @@ class Wall:
             screen.blit(w_text, text_rect)
         except pygame.error as e:
             print(f"WARNING: Wall label rendering error - {e}")
+
+class Flagpole:
+    """
+    Mario-style flagpole goal system for level completion.
+    
+    Features:
+    - Yellow flagpole with flag at top
+    - Victory condition when Karel reaches it after collecting all beepers
+    - Positioned near end of level (x=3100)
+    - Victory animation and game completion
+    """
+    
+    def __init__(self, x):
+        """Initialize flagpole at the given x position."""
+        self.x = x
+        self.y = GROUND_LEVEL - FLAGPOLE_HEIGHT
+        self.width = FLAGPOLE_WIDTH
+        self.height = FLAGPOLE_HEIGHT
+        self.pole_rect = pygame.Rect(x, self.y, FLAGPOLE_WIDTH, FLAGPOLE_HEIGHT)
+        
+        # Flag position (top-right of pole)
+        self.flag_x = x + FLAGPOLE_WIDTH
+        self.flag_y = self.y
+        self.flag_rect = pygame.Rect(self.flag_x, self.flag_y, FLAG_SIZE, FLAG_SIZE)
+        
+        self.reached = False
+    
+    def check_victory(self, karel):
+        """
+        Check if Karel has reached the flagpole.
+        Returns True if victory condition is met.
+        """
+        if self.reached:
+            return False
+        
+        # Check if Karel is touching the flagpole or flag
+        karel_rect = pygame.Rect(karel.x, karel.y, karel.width, karel.height)
+        
+        if karel_rect.colliderect(self.pole_rect) or karel_rect.colliderect(self.flag_rect):
+            self.reached = True
+            print("🎉 VICTORY! Karel completed the Code Quest!")
+            return True
+        
+        return False
+    
+    def draw(self, screen):
+        """Draw flagpole with yellow pole and flag."""
+        # Draw yellow flagpole
+        pygame.draw.rect(screen, FLAGPOLE_YELLOW, self.pole_rect)
+        
+        # Draw flag (yellow with black border)
+        pygame.draw.rect(screen, FLAGPOLE_YELLOW, self.flag_rect)
+        pygame.draw.rect(screen, BLACK, self.flag_rect, 2)  # Black border
+        
+        # Draw flag pattern (simple triangle)
+        flag_points = [
+            (self.flag_x, self.flag_y),
+            (self.flag_x + FLAG_SIZE, self.flag_y + FLAG_SIZE // 2),
+            (self.flag_x, self.flag_y + FLAG_SIZE),
+        ]
+        pygame.draw.polygon(screen, FLAGPOLE_YELLOW, flag_points)
+        pygame.draw.polygon(screen, BLACK, flag_points, 2)  # Black outline
 
 class Camera:
     """
@@ -331,6 +400,7 @@ class Karel:
         Check if Karel is colliding with any platform or wall.
         Handles both top and bottom collisions with proper edge case handling.
         Walls act as platforms for landing but also block movement.
+        Ground gaps allow Karel to fall through.
         """
         karel_bottom = self.y + self.height
         karel_top = self.y
@@ -367,11 +437,8 @@ class Karel:
                     self.velocity_y = 0
                     break
         
-        # Check ground collision as fallback
-        if not self.on_ground and karel_bottom >= GROUND_LEVEL:
-            self.y = GROUND_LEVEL - self.height
-            self.velocity_y = 0
-            self.on_ground = True
+        # No fallback ground collision - Karel can fall through gaps!
+        # This creates the Mario-style gap jumping challenge
     
     def update(self, keys_pressed, platforms, walls):
         """Update Karel's position based on keyboard input, physics, and obstacles."""
@@ -393,6 +460,15 @@ class Karel:
         
         # Check platform and wall collision
         self.check_platform_collision(platforms, walls)
+        
+        # Check if Karel fell into a gap (below screen)
+        if self.y > WINDOW_HEIGHT + 100:  # Give some buffer
+            # Reset Karel to starting position (Mario-style)
+            self.x = KAREL_START_X
+            self.y = KAREL_START_Y
+            self.velocity_y = 0
+            self.on_ground = False
+            print("Karel fell! Respawn at start.")
         
         # Update collision rectangle
         self.rect.x = self.x
@@ -440,6 +516,7 @@ class KarelGame:
         self.running = False
         self.background_image = None
         self.score = 0
+        self.game_won = False
         
         # Initialize pygame with error handling
         if not self._initialize_pygame():
@@ -453,6 +530,9 @@ class KarelGame:
         
         # Create Karel character
         self.karel = Karel(KAREL_START_X, KAREL_START_Y)
+        
+        # Create flagpole goal
+        self.flagpole = Flagpole(FLAGPOLE_X)
         
         # Load extended level data
         self._create_level_data()
@@ -509,11 +589,18 @@ class KarelGame:
     def _create_level_data(self):
         """
         Create extended Mario-style level layout across the 3200px world.
-        Hand-placed platforms, walls, and beepers for strategic gameplay.
+        Hand-placed platforms, walls, beepers, and ground gaps for strategic gameplay.
         """
-        # Create extended ground platform
+        # Create ground segments with strategic gaps (Mario-style)
         self.platforms = [
-            Platform(0, GROUND_LEVEL, WORLD_WIDTH, GROUND_HEIGHT),  # Full ground
+            # Ground segments with gaps for jumping challenges
+            Platform(0, GROUND_LEVEL, 400, GROUND_HEIGHT),        # Start ground (0-400)
+            Platform(500, GROUND_LEVEL, 300, GROUND_HEIGHT),      # Gap 1: 400-500 (100px gap), ground 500-800
+            Platform(900, GROUND_LEVEL, 300, GROUND_HEIGHT),      # Gap 2: 800-900 (100px gap), ground 900-1200
+            Platform(1350, GROUND_LEVEL, 250, GROUND_HEIGHT),     # Gap 3: 1200-1350 (150px gap), ground 1350-1600
+            Platform(1750, GROUND_LEVEL, 200, GROUND_HEIGHT),     # Gap 4: 1600-1750 (150px gap), ground 1750-1950
+            Platform(2100, GROUND_LEVEL, 300, GROUND_HEIGHT),     # Gap 5: 1950-2100 (150px gap), ground 2100-2400  
+            Platform(2600, GROUND_LEVEL, 600, GROUND_HEIGHT),     # Gap 6: 2400-2600 (200px gap), ground 2600-3200
             
             # Early section platforms (0-800px)
             Platform(200, 400, 100, 20),    # Starting area platform
@@ -540,52 +627,21 @@ class KarelGame:
             Platform(3000, 280, 150, 20),   # Final large platform
         ]
         
-        # Create strategic wall obstacles
-        self.walls = [
-            # Early section walls
-            Wall(320, GROUND_LEVEL - WALL_SIZE),     # Ground obstacle
-            Wall(250, 400 - WALL_SIZE),              # Platform 1 blocker
-            Wall(500, 240 - WALL_SIZE),              # Platform 3 maze
-            
-            # Mid section walls  
-            Wall(900, GROUND_LEVEL - WALL_SIZE),     # Mid ground obstacle
-            Wall(1100, 280 - WALL_SIZE),             # Platform blocker
-            Wall(1300, GROUND_LEVEL - WALL_SIZE),    # Another ground wall
-            
-            # Advanced section walls
-            Wall(1750, 240 - WALL_SIZE),             # Precision jump blocker
-            Wall(2100, GROUND_LEVEL - WALL_SIZE),    # Late ground obstacle
-            Wall(2250, 160 - WALL_SIZE),             # High platform blocker
-            
-            # Final section walls
-            Wall(2700, GROUND_LEVEL - WALL_SIZE),    # Final ground challenge
-            Wall(2850, 160 - WALL_SIZE),             # Final high wall
-        ]
+        # No walls - clean platforming focus
+        self.walls = []
         
-        # Create beepers across the level (collect all to win!)
+        # Optional beepers for score (not required for victory)
         self.beepers = [
-            # Early section beepers
+            # Strategic beepers on platforms and over gaps
             Beeper(150, GROUND_LEVEL - 20),          # Ground start
             Beeper(220, 400 - 25),                   # Platform 1
-            Beeper(370, 320 - 25),                   # Platform 2
-            Beeper(520, 240 - 25),                   # Platform 3
+            Beeper(450, GROUND_LEVEL - 100),         # Above first gap - risky!
             Beeper(670, 160 - 25),                   # High platform
-            
-            # Mid section beepers
-            Beeper(850, 350 - 25),                   # Landing platform
-            Beeper(1050, 280 - 25),                  # Jump challenge
-            Beeper(1250, 200 - 25),                  # High route
-            Beeper(1450, 320 - 25),                  # Rest platform
-            
-            # Advanced section beepers
-            Beeper(1750, 240 - 25),                  # Precision platform
-            Beeper(1900, 180 - 25),                  # Small platform
-            Beeper(2050, 240 - 25),                  # Mirror jump
-            Beeper(2250, 160 - 25),                  # High sequence
-            
-            # Final section beepers
-            Beeper(2650, 220 - 25),                  # Final challenge
-            Beeper(2850, 160 - 25),                  # High finale
+            Beeper(850, GROUND_LEVEL - 100),         # Above second gap - risky!
+            Beeper(1050, 280 - 25),                  # Mid platform
+            Beeper(1500, 220 - 25),                  # Platform beeper
+            Beeper(2000, GROUND_LEVEL - 100),        # Above big gap - very risky!
+            Beeper(2800, 280 - 25),                  # Near end
             Beeper(3050, 280 - 25),                  # Victory platform
         ]
     
@@ -679,6 +735,11 @@ class KarelGame:
         for beeper in self.beepers:
             if beeper.check_collection(self.karel):
                 self.score += beeper.points
+        
+        # Check victory condition - just reach the flagpole!
+        if not self.game_won:
+            if self.flagpole.check_victory(self.karel):
+                self.game_won = True
     
     def draw_grid(self):
         """Draw Karel's signature grid background with plus signs."""
@@ -754,6 +815,20 @@ class KarelGame:
                 except pygame.error:
                     pass
         
+        # Draw flagpole (if visible)
+        if self.camera.is_visible(self.flagpole.x, self.flagpole.y, FLAGPOLE_WIDTH + FLAG_SIZE, FLAGPOLE_HEIGHT):
+            screen_x, screen_y = self.camera.get_screen_pos(self.flagpole.x, self.flagpole.y)
+            
+            # Draw flagpole
+            pole_rect = pygame.Rect(screen_x, screen_y, FLAGPOLE_WIDTH, FLAGPOLE_HEIGHT)
+            pygame.draw.rect(self.screen, FLAGPOLE_YELLOW, pole_rect)
+            
+            # Draw flag
+            flag_screen_x, flag_screen_y = self.camera.get_screen_pos(self.flagpole.flag_x, self.flagpole.flag_y)
+            flag_rect = pygame.Rect(flag_screen_x, flag_screen_y, FLAG_SIZE, FLAG_SIZE)
+            pygame.draw.rect(self.screen, FLAGPOLE_YELLOW, flag_rect)
+            pygame.draw.rect(self.screen, BLACK, flag_rect, 2)  # Black border
+        
         # Draw Karel character
         screen_x, screen_y = self.camera.get_screen_pos(self.karel.x, self.karel.y)
         screen_rect = pygame.Rect(screen_x, screen_y, self.karel.width, self.karel.height)
@@ -770,20 +845,25 @@ class KarelGame:
         
         # Draw UI elements
         try:
-            # Score display in top-left corner
+            # Score and progress display in top-left corner
             score_font = pygame.font.Font(None, 28)
-            score_text = score_font.render(f"Score: {self.score}", True, BLACK)
+            beepers_collected = sum(1 for b in self.beepers if b.collected)
+            total_beepers = len(self.beepers)
+            score_text = score_font.render(f"Score: {self.score} | Beepers: {beepers_collected}/{total_beepers}", True, BLACK)
             self.screen.blit(score_text, (10, 10))
             
             # Game title at top center
             title_font = pygame.font.Font(None, 36)
-            title_text = title_font.render("Karel's Code Quest", True, BLACK)
+            if self.game_won:
+                title_text = title_font.render("🎉 VICTORY! Code Quest Complete! 🎉", True, BLACK)
+            else:
+                title_text = title_font.render("Karel's Code Quest", True, BLACK)
             title_rect = title_text.get_rect(center=(WINDOW_WIDTH//2, 25))
             self.screen.blit(title_text, title_rect)
             
             # Instructions at bottom
             instruction_font = pygame.font.Font(None, 20)
-            instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Collect Beepers, Navigate Walls!", True, BLACK)
+            instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Reach the Flagpole to Win!", True, BLACK)
             instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
             self.screen.blit(instruction_text, instruction_rect)
             
