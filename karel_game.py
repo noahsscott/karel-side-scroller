@@ -28,11 +28,19 @@ TERMINAL_VELOCITY = 12
 GROUND_HEIGHT = 50
 GROUND_LEVEL = WINDOW_HEIGHT - GROUND_HEIGHT
 
-# Color Palette (simple scheme for CIP compatibility)
+# Color Palette (authentic Karel aesthetic)
+KAREL_BACKGROUND = (240, 240, 240)  # Light gray/beige background like classic Karel
 BLACK = (0, 0, 0)
+
+# Grid Constants
+GRID_SIZE = 25
+GRID_COLOR = BLACK  # Black plus signs like classic Karel world
+
+# Background Image (optional)
+BACKGROUND_IMAGE_PATH = "background.png"  # Place background.png in same directory
 WHITE = (255, 255, 255)
-KAREL_BLUE = (0, 100, 200)  # Karel's signature color
-GROUND_GREEN = (0, 150, 0)  # Ground color
+KAREL_BLUE = (0, 100, 255)  # Karel's signature color - improved contrast
+GROUND_GREEN = (0, 200, 0)  # Platform color - brighter green
 
 class Platform:
     """
@@ -195,10 +203,14 @@ class KarelGame:
         self.screen = None
         self.clock = None
         self.running = False
+        self.background_image = None
         
         # Initialize pygame with error handling
         if not self._initialize_pygame():
             sys.exit(1)
+        
+        # Load background image (optional)
+        self._load_background_image()
         
         # Create Karel character
         self.karel = Karel(KAREL_START_X, KAREL_START_Y)
@@ -244,6 +256,23 @@ class KarelGame:
             print(f"ERROR: Unexpected error during initialization - {e}")
             return False
     
+    def _load_background_image(self):
+        """
+        Load background image if available.
+        Falls back to procedural background if image not found.
+        """
+        try:
+            self.background_image = pygame.image.load(BACKGROUND_IMAGE_PATH)
+            # Scale to fit window if needed
+            if self.background_image.get_size() != (WINDOW_WIDTH, WINDOW_HEIGHT):
+                self.background_image = pygame.transform.scale(
+                    self.background_image, (WINDOW_WIDTH, WINDOW_HEIGHT))
+            print(f"Background image loaded: {BACKGROUND_IMAGE_PATH}")
+        except (pygame.error, FileNotFoundError):
+            print(f"Background image not found: {BACKGROUND_IMAGE_PATH}")
+            print("Using procedural Karel world background")
+            self.background_image = None
+    
     def handle_events(self):
         """
         Process all pygame events.
@@ -270,13 +299,33 @@ class KarelGame:
         # Update Karel's position based on input and platforms
         self.karel.update(keys_pressed, self.platforms)
     
+    def draw_grid(self):
+        """Draw Karel's signature grid background with plus signs."""
+        # Draw plus signs at grid intersections
+        for x in range(0, WINDOW_WIDTH + 1, GRID_SIZE):
+            for y in range(0, WINDOW_HEIGHT + 1, GRID_SIZE):
+                # Draw plus sign at each intersection
+                plus_size = 3
+                # Horizontal line of plus
+                pygame.draw.line(self.screen, GRID_COLOR, 
+                               (x - plus_size, y), (x + plus_size, y), 1)
+                # Vertical line of plus
+                pygame.draw.line(self.screen, GRID_COLOR, 
+                               (x, y - plus_size), (x, y + plus_size), 1)
+    
     def draw(self):
         """
         Render the current game state to the screen.
-        Draw Karel, platforms, and game instructions.
+        Draw background, Karel, platforms, and UI elements.
         """
-        # Clear screen with black background
-        self.screen.fill(BLACK)
+        # Draw background (image if available, otherwise procedural)
+        if self.background_image:
+            # Use background image
+            self.screen.blit(self.background_image, (0, 0))
+        else:
+            # Use procedural Karel world background
+            self.screen.fill(KAREL_BACKGROUND)
+            self.draw_grid()
         
         # Draw all platforms
         for platform in self.platforms:
@@ -285,13 +334,18 @@ class KarelGame:
         # Draw Karel character
         self.karel.draw(self.screen)
         
-        # Draw game instructions
+        # Draw UI elements
         try:
-            font = pygame.font.Font(None, 24)
-            instruction_text = font.render("Arrow Keys: Move | Spacebar: Jump | ESC: Quit", True, WHITE)
+            # Game title at top center
+            title_font = pygame.font.Font(None, 36)
+            title_text = title_font.render("Karel's Code Quest", True, BLACK)
+            title_rect = title_text.get_rect(center=(WINDOW_WIDTH//2, 25))
+            self.screen.blit(title_text, title_rect)
             
-            # Position instructions at top of screen
-            instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, 30))
+            # Instructions at bottom
+            instruction_font = pygame.font.Font(None, 24)
+            instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump", True, BLACK)
+            instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
             self.screen.blit(instruction_text, instruction_rect)
             
         except pygame.error as e:
