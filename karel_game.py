@@ -34,6 +34,23 @@ WHITE = (255, 255, 255)
 KAREL_BLUE = (0, 100, 200)  # Karel's signature color
 GROUND_GREEN = (0, 150, 0)  # Ground color
 
+class Platform:
+    """
+    Platform class representing solid surfaces Karel can land on.
+    """
+    
+    def __init__(self, x, y, width, height):
+        """Initialize platform with position and dimensions."""
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.rect = pygame.Rect(x, y, width, height)
+    
+    def draw(self, screen):
+        """Draw the platform as a green rectangle."""
+        pygame.draw.rect(screen, GROUND_GREEN, self.rect)
+
 class Karel:
     """
     Karel character class representing the player.
@@ -87,19 +104,47 @@ class Karel:
             if self.velocity_y > TERMINAL_VELOCITY:
                 self.velocity_y = TERMINAL_VELOCITY
     
-    def check_ground_collision(self):
-        """Check if Karel is colliding with the ground."""
+    def check_platform_collision(self, platforms):
+        """Check if Karel is colliding with any platform."""
         karel_bottom = self.y + self.height
+        karel_top = self.y
+        self.on_ground = False
         
-        if karel_bottom >= GROUND_LEVEL:
-            # Karel is on or below ground
+        # Check collision with all platforms (including ground)
+        for platform in platforms:
+            # Check if Karel is horizontally overlapping with platform
+            horizontal_overlap = (self.x + self.width > platform.x and 
+                                self.x < platform.x + platform.width)
+            
+            if horizontal_overlap:
+                # Landing on top of platform (falling down)
+                if (self.velocity_y > 0 and 
+                    karel_bottom >= platform.y and 
+                    karel_bottom <= platform.y + platform.height):
+                    
+                    # Karel is landing on this platform
+                    self.y = platform.y - self.height
+                    self.velocity_y = 0
+                    self.on_ground = True
+                    break
+                
+                # Hitting platform from below (jumping up)
+                elif (self.velocity_y < 0 and 
+                      karel_top <= platform.y + platform.height and 
+                      karel_top >= platform.y):
+                    
+                    # Karel hit platform from below, stop upward movement
+                    self.y = platform.y + platform.height
+                    self.velocity_y = 0
+                    break
+        
+        # Check ground collision as fallback
+        if not self.on_ground and karel_bottom >= GROUND_LEVEL:
             self.y = GROUND_LEVEL - self.height
             self.velocity_y = 0
             self.on_ground = True
-        else:
-            self.on_ground = False
     
-    def update(self, keys_pressed):
+    def update(self, keys_pressed, platforms):
         """Update Karel's position based on keyboard input and physics."""
         # Handle horizontal movement
         if keys_pressed[pygame.K_LEFT]:
@@ -117,8 +162,8 @@ class Karel:
         # Update vertical position
         self.y += self.velocity_y
         
-        # Check ground collision
-        self.check_ground_collision()
+        # Check platform collision
+        self.check_platform_collision(platforms)
         
         # Update collision rectangle
         self.rect.x = self.x
@@ -157,6 +202,15 @@ class KarelGame:
         
         # Create Karel character
         self.karel = Karel(KAREL_START_X, KAREL_START_Y)
+        
+        # Create platforms for the level
+        self.platforms = [
+            Platform(200, 400, 100, 20),  # Platform 1
+            Platform(350, 320, 80, 20),   # Platform 2  
+            Platform(480, 240, 120, 20),  # Platform 3
+            Platform(600, 160, 100, 20),  # Platform 4 (highest)
+            Platform(0, GROUND_LEVEL, WINDOW_WIDTH, GROUND_HEIGHT)  # Ground platform
+        ]
     
     def _initialize_pygame(self):
         """
@@ -213,20 +267,20 @@ class KarelGame:
         # Get currently pressed keys for smooth movement
         keys_pressed = pygame.key.get_pressed()
         
-        # Update Karel's position based on input
-        self.karel.update(keys_pressed)
+        # Update Karel's position based on input and platforms
+        self.karel.update(keys_pressed, self.platforms)
     
     def draw(self):
         """
         Render the current game state to the screen.
-        Draw Karel, ground, and game instructions.
+        Draw Karel, platforms, and game instructions.
         """
         # Clear screen with black background
         self.screen.fill(BLACK)
         
-        # Draw ground level (green rectangle at bottom)
-        ground_rect = pygame.Rect(0, GROUND_LEVEL, WINDOW_WIDTH, GROUND_HEIGHT)
-        pygame.draw.rect(self.screen, GROUND_GREEN, ground_rect)
+        # Draw all platforms
+        for platform in self.platforms:
+            platform.draw(self.screen)
         
         # Draw Karel character
         self.karel.draw(self.screen)
