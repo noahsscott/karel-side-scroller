@@ -38,6 +38,10 @@ WINDOW_HEIGHT = 480
 FPS = 60
 GAME_TITLE = "Karel's Code Quest"
 
+# World Settings (Side-Scroller)
+WORLD_WIDTH = 3200               # Total world width (Mario-style level)
+WORLD_HEIGHT = WINDOW_HEIGHT     # Keep same height
+
 # Karel Character Settings
 KAREL_SIZE = 32
 KAREL_SPEED = 5
@@ -183,6 +187,56 @@ class Wall:
         except pygame.error as e:
             print(f"WARNING: Wall label rendering error - {e}")
 
+class Camera:
+    """
+    Mario-style camera system for side-scrolling gameplay.
+    
+    Features:
+    - Smooth following with forward bias
+    - No backward scrolling (classic Mario style)
+    - Vertical centering around Karel
+    - World boundary constraints
+    """
+    
+    def __init__(self):
+        """Initialize camera at world start."""
+        self.x = 0  # Camera world position
+        self.y = 0  # Vertical offset (usually 0)
+        self.target_x = 0  # Smooth following target
+        self.follow_speed = 0.1  # Camera smoothness (0.1 = slow, 1.0 = instant)
+        
+    def update(self, karel):
+        """
+        Update camera position to follow Karel with Mario-style behavior.
+        """
+        # Calculate ideal camera position (Karel roughly centered, but with forward bias)
+        ideal_camera_x = karel.x - WINDOW_WIDTH // 3  # Karel at 1/3 from left (forward looking)
+        
+        # Mario-style: Camera never moves backward
+        if ideal_camera_x > self.target_x:
+            self.target_x = ideal_camera_x
+        
+        # Smooth camera movement toward target
+        self.x += (self.target_x - self.x) * self.follow_speed
+        
+        # Constrain camera to world boundaries
+        self.x = max(0, min(self.x, WORLD_WIDTH - WINDOW_WIDTH))
+        
+        # Keep camera vertically centered
+        self.y = 0  # Could add vertical following later if needed
+    
+    def get_screen_pos(self, world_x, world_y):
+        """Convert world coordinates to screen coordinates."""
+        screen_x = world_x - self.x
+        screen_y = world_y - self.y
+        return screen_x, screen_y
+    
+    def is_visible(self, world_x, world_y, width=32, height=32):
+        """Check if an object at world position is visible on screen."""
+        screen_x, screen_y = self.get_screen_pos(world_x, world_y)
+        return (screen_x + width > 0 and screen_x < WINDOW_WIDTH and
+                screen_y + height > 0 and screen_y < WINDOW_HEIGHT)
+
 class Karel:
     """
     Karel character class representing the player.
@@ -242,9 +296,9 @@ class Karel:
         self.x += self.speed
         self.rect.x = self.x
         
-        # Check boundary collision
-        if self.x > WINDOW_WIDTH - self.width:
-            self.x = WINDOW_WIDTH - self.width
+        # Check world boundary collision (can move to edge of world)
+        if self.x > WORLD_WIDTH - self.width:
+            self.x = WORLD_WIDTH - self.width
             self.rect.x = self.x
             return
         
@@ -394,56 +448,14 @@ class KarelGame:
         # Load background image (optional)
         self._load_background_image()
         
+        # Create camera system
+        self.camera = Camera()
+        
         # Create Karel character
         self.karel = Karel(KAREL_START_X, KAREL_START_Y)
         
-        # Create platforms for the level
-        self.platforms = [
-            Platform(200, 400, 100, 20),  # Platform 1
-            Platform(350, 320, 80, 20),   # Platform 2  
-            Platform(480, 240, 120, 20),  # Platform 3
-            Platform(600, 160, 100, 20),  # Platform 4 (highest)
-            Platform(0, GROUND_LEVEL, WINDOW_WIDTH, GROUND_HEIGHT)  # Ground platform
-        ]
-        
-        # Create beepers strategically placed above platforms
-        self.beepers = [
-            # Ground level beepers
-            Beeper(150, GROUND_LEVEL - 20),
-            Beeper(300, GROUND_LEVEL - 20),
-            
-            # Platform 1 beepers (200, 400, 100, 20) - place above platform
-            Beeper(220, 400 - 25),
-            Beeper(270, 400 - 25),
-            
-            # Platform 2 beepers (350, 320, 80, 20) - place above platform
-            Beeper(370, 320 - 25),
-            Beeper(400, 320 - 25),
-            
-            # Platform 3 beeper (480, 240, 120, 20) - place above platform
-            Beeper(520, 240 - 25),
-            
-            # Platform 4 beeper (600, 160, 100, 20) - highest platform
-            Beeper(650, 160 - 25),
-        ]
-        
-        # Create walls strategically placed to create navigation challenges
-        self.walls = [
-            # Wall 1: Ground level obstacle - forces jumping over
-            Wall(320, GROUND_LEVEL - WALL_SIZE),
-            
-            # Wall 2: Platform 2 obstacle - blocks direct path  
-            Wall(380, 320 - WALL_SIZE),
-            
-            # Wall 3: Platform 3 maze element
-            Wall(500, 240 - WALL_SIZE),
-            
-            # Wall 4: Additional challenge near Platform 1
-            Wall(250, 400 - WALL_SIZE),
-            
-            # Wall 5: High wall creating vertical challenge
-            Wall(550, 320 - WALL_SIZE),
-        ]
+        # Load extended level data
+        self._create_level_data()
         
         # Adjust beeper positions to avoid all obstacle conflicts
         self._resolve_beeper_obstacle_conflicts()
@@ -493,6 +505,89 @@ class KarelGame:
         except (pygame.error, FileNotFoundError):
             # Background image not found - use procedural background
             self.background_image = None
+    
+    def _create_level_data(self):
+        """
+        Create extended Mario-style level layout across the 3200px world.
+        Hand-placed platforms, walls, and beepers for strategic gameplay.
+        """
+        # Create extended ground platform
+        self.platforms = [
+            Platform(0, GROUND_LEVEL, WORLD_WIDTH, GROUND_HEIGHT),  # Full ground
+            
+            # Early section platforms (0-800px)
+            Platform(200, 400, 100, 20),    # Starting area platform
+            Platform(350, 320, 80, 20),     # Mid-low platform
+            Platform(480, 240, 120, 20),    # Higher platform
+            Platform(650, 160, 100, 20),    # Early high platform
+            
+            # Mid section platforms (800-1600px) 
+            Platform(800, 350, 120, 20),    # Landing platform
+            Platform(1000, 280, 80, 20),    # Jump challenge
+            Platform(1200, 200, 100, 20),   # High route
+            Platform(1400, 320, 150, 20),   # Large rest platform
+            
+            # Advanced section platforms (1600-2400px)
+            Platform(1700, 240, 80, 20),    # Precision jumps
+            Platform(1850, 180, 60, 20),    # Small platform
+            Platform(2000, 240, 80, 20),    # Mirror jump
+            Platform(2200, 160, 120, 20),   # High platform sequence
+            Platform(2400, 300, 100, 20),   # Descent platform
+            
+            # Final section platforms (2400-3200px)
+            Platform(2600, 220, 100, 20),   # Final challenges
+            Platform(2800, 160, 80, 20),    # High finale
+            Platform(3000, 280, 150, 20),   # Final large platform
+        ]
+        
+        # Create strategic wall obstacles
+        self.walls = [
+            # Early section walls
+            Wall(320, GROUND_LEVEL - WALL_SIZE),     # Ground obstacle
+            Wall(250, 400 - WALL_SIZE),              # Platform 1 blocker
+            Wall(500, 240 - WALL_SIZE),              # Platform 3 maze
+            
+            # Mid section walls  
+            Wall(900, GROUND_LEVEL - WALL_SIZE),     # Mid ground obstacle
+            Wall(1100, 280 - WALL_SIZE),             # Platform blocker
+            Wall(1300, GROUND_LEVEL - WALL_SIZE),    # Another ground wall
+            
+            # Advanced section walls
+            Wall(1750, 240 - WALL_SIZE),             # Precision jump blocker
+            Wall(2100, GROUND_LEVEL - WALL_SIZE),    # Late ground obstacle
+            Wall(2250, 160 - WALL_SIZE),             # High platform blocker
+            
+            # Final section walls
+            Wall(2700, GROUND_LEVEL - WALL_SIZE),    # Final ground challenge
+            Wall(2850, 160 - WALL_SIZE),             # Final high wall
+        ]
+        
+        # Create beepers across the level (collect all to win!)
+        self.beepers = [
+            # Early section beepers
+            Beeper(150, GROUND_LEVEL - 20),          # Ground start
+            Beeper(220, 400 - 25),                   # Platform 1
+            Beeper(370, 320 - 25),                   # Platform 2
+            Beeper(520, 240 - 25),                   # Platform 3
+            Beeper(670, 160 - 25),                   # High platform
+            
+            # Mid section beepers
+            Beeper(850, 350 - 25),                   # Landing platform
+            Beeper(1050, 280 - 25),                  # Jump challenge
+            Beeper(1250, 200 - 25),                  # High route
+            Beeper(1450, 320 - 25),                  # Rest platform
+            
+            # Advanced section beepers
+            Beeper(1750, 240 - 25),                  # Precision platform
+            Beeper(1900, 180 - 25),                  # Small platform
+            Beeper(2050, 240 - 25),                  # Mirror jump
+            Beeper(2250, 160 - 25),                  # High sequence
+            
+            # Final section beepers
+            Beeper(2650, 220 - 25),                  # Final challenge
+            Beeper(2850, 160 - 25),                  # High finale
+            Beeper(3050, 280 - 25),                  # Victory platform
+        ]
     
     def _check_beeper_obstacle_collision(self, beeper_x, beeper_y):
         """
@@ -577,6 +672,9 @@ class KarelGame:
         # Update Karel's position based on input, platforms, and walls
         self.karel.update(keys_pressed, self.platforms, self.walls)
         
+        # Update camera to follow Karel
+        self.camera.update(self.karel)
+        
         # Check beeper collection
         for beeper in self.beepers:
             if beeper.check_collection(self.karel):
@@ -584,17 +682,25 @@ class KarelGame:
     
     def draw_grid(self):
         """Draw Karel's signature grid background with plus signs."""
-        # Draw plus signs at grid intersections
-        for x in range(0, WINDOW_WIDTH + 1, GRID_SIZE):
-            for y in range(0, WINDOW_HEIGHT + 1, GRID_SIZE):
-                # Draw plus sign at each intersection
-                plus_size = 3
-                # Horizontal line of plus
-                pygame.draw.line(self.screen, GRID_COLOR, 
-                               (x - plus_size, y), (x + plus_size, y), 1)
-                # Vertical line of plus
-                pygame.draw.line(self.screen, GRID_COLOR, 
-                               (x, y - plus_size), (x, y + plus_size), 1)
+        # Calculate grid range based on camera position
+        start_x = int(self.camera.x // GRID_SIZE) * GRID_SIZE
+        end_x = start_x + WINDOW_WIDTH + GRID_SIZE
+        
+        # Draw plus signs at grid intersections (camera-relative)
+        for world_x in range(start_x, end_x + 1, GRID_SIZE):
+            for world_y in range(0, WINDOW_HEIGHT + 1, GRID_SIZE):
+                screen_x, screen_y = self.camera.get_screen_pos(world_x, world_y)
+                
+                # Only draw if on screen
+                if 0 <= screen_x <= WINDOW_WIDTH:
+                    # Draw plus sign at each intersection
+                    plus_size = 3
+                    # Horizontal line of plus
+                    pygame.draw.line(self.screen, GRID_COLOR, 
+                                   (screen_x - plus_size, screen_y), (screen_x + plus_size, screen_y), 1)
+                    # Vertical line of plus
+                    pygame.draw.line(self.screen, GRID_COLOR, 
+                                   (screen_x, screen_y - plus_size), (screen_x, screen_y + plus_size), 1)
     
     def draw(self):
         """
@@ -610,20 +716,57 @@ class KarelGame:
             self.screen.fill(KAREL_BACKGROUND)
             self.draw_grid()
         
-        # Draw all platforms
+        # Draw all platforms (only visible ones for performance)
         for platform in self.platforms:
-            platform.draw(self.screen)
+            if self.camera.is_visible(platform.x, platform.y, platform.width, platform.height):
+                screen_x, screen_y = self.camera.get_screen_pos(platform.x, platform.y)
+                screen_rect = pygame.Rect(screen_x, screen_y, platform.width, platform.height)
+                pygame.draw.rect(self.screen, GROUND_GREEN, screen_rect)
         
-        # Draw all walls
+        # Draw all walls (only visible ones)
         for wall in self.walls:
-            wall.draw(self.screen)
+            if self.camera.is_visible(wall.x, wall.y, wall.width, wall.height):
+                screen_x, screen_y = self.camera.get_screen_pos(wall.x, wall.y)
+                screen_rect = pygame.Rect(screen_x, screen_y, wall.width, wall.height)
+                pygame.draw.rect(self.screen, WALL_RED, screen_rect)
+                
+                # Draw 'W' text
+                try:
+                    font = pygame.font.Font(None, 24)
+                    w_text = font.render('W', True, WHITE)
+                    text_rect = w_text.get_rect(center=(screen_x + wall.width//2, screen_y + wall.height//2))
+                    self.screen.blit(w_text, text_rect)
+                except pygame.error:
+                    pass
         
-        # Draw all beepers
+        # Draw all beepers (only visible and uncollected ones)
         for beeper in self.beepers:
-            beeper.draw(self.screen)
+            if not beeper.collected and self.camera.is_visible(beeper.x, beeper.y, BEEPER_RADIUS*2, BEEPER_RADIUS*2):
+                screen_x, screen_y = self.camera.get_screen_pos(beeper.x, beeper.y)
+                pygame.draw.circle(self.screen, BEEPER_YELLOW, (int(screen_x), int(screen_y)), beeper.radius)
+                
+                # Draw 'B' text
+                try:
+                    font = pygame.font.Font(None, 16)
+                    b_text = font.render('B', True, BLACK)
+                    text_rect = b_text.get_rect(center=(int(screen_x), int(screen_y)))
+                    self.screen.blit(b_text, text_rect)
+                except pygame.error:
+                    pass
         
         # Draw Karel character
-        self.karel.draw(self.screen)
+        screen_x, screen_y = self.camera.get_screen_pos(self.karel.x, self.karel.y)
+        screen_rect = pygame.Rect(screen_x, screen_y, self.karel.width, self.karel.height)
+        pygame.draw.rect(self.screen, KAREL_BLUE, screen_rect)
+        
+        # Draw Karel's 'K' text
+        try:
+            font = pygame.font.Font(None, 24)
+            k_text = font.render('K', True, WHITE)
+            text_rect = k_text.get_rect(center=(screen_x + self.karel.width//2, screen_y + self.karel.height//2))
+            self.screen.blit(k_text, text_rect)
+        except pygame.error:
+            pass
         
         # Draw UI elements
         try:
