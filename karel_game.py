@@ -4,47 +4,73 @@ Stanford CIP Final Project
 
 This is a single-file pygame implementation designed to run in the CIP browser environment.
 Karel, the beloved Stanford CS robot, embarks on a coding adventure through various levels.
+
+DAY 1 FEATURES:
+- 640x480 game window with authentic Karel world aesthetic
+- Karel character with smooth left/right movement and jumping
+- Realistic physics system with gravity and collision detection  
+- Multi-platform level with 4 different height platforms
+- Karel-style grid background with plus signs
+- Optional background image support
+- Stable 60fps performance
+
+CONTROLS:
+- Left/Right Arrow Keys: Move Karel horizontally
+- Spacebar: Jump (only when on ground)
+- ESC: Quit game
+
+ARCHITECTURE:
+- Karel class: Player character with physics and rendering
+- Platform class: Reusable collision surfaces  
+- KarelGame class: Main game loop and system management
 """
 
 import pygame
 import sys
 
-# Game Constants
+# ============================================================================
+# GAME CONFIGURATION AND CONSTANTS
+# ============================================================================
+
+# Window and Performance Settings
 WINDOW_WIDTH = 640
 WINDOW_HEIGHT = 480
 FPS = 60
 GAME_TITLE = "Karel's Code Quest"
 
-# Karel Constants
+# Karel Character Settings
 KAREL_SIZE = 32
 KAREL_SPEED = 5
 KAREL_START_X = 50
 KAREL_START_Y = WINDOW_HEIGHT - 100
 
-# Physics Constants
-GRAVITY = 0.8
-JUMP_VELOCITY = -15
-TERMINAL_VELOCITY = 12
-GROUND_HEIGHT = 50
+# Physics System Constants
+GRAVITY = 0.8                # Downward acceleration per frame
+JUMP_VELOCITY = -15          # Initial upward velocity when jumping
+TERMINAL_VELOCITY = 12       # Maximum falling speed
+GROUND_HEIGHT = 50           # Height of ground platform
 GROUND_LEVEL = WINDOW_HEIGHT - GROUND_HEIGHT
 
-# Color Palette (authentic Karel aesthetic)
-KAREL_BACKGROUND = (240, 240, 240)  # Light gray/beige background like classic Karel
+# Visual Style Settings
+GRID_SIZE = 25               # Size of Karel world grid squares
+BACKGROUND_IMAGE_PATH = "background.png"  # Optional background image
+
+# Color Palette (Authentic Karel World Aesthetic)
+KAREL_BACKGROUND = (240, 240, 240)  # Light gray background
 BLACK = (0, 0, 0)
-
-# Grid Constants
-GRID_SIZE = 25
-GRID_COLOR = BLACK  # Black plus signs like classic Karel world
-
-# Background Image (optional)
-BACKGROUND_IMAGE_PATH = "background.png"  # Place background.png in same directory
 WHITE = (255, 255, 255)
-KAREL_BLUE = (0, 100, 255)  # Karel's signature color - improved contrast
-GROUND_GREEN = (0, 200, 0)  # Platform color - brighter green
+KAREL_BLUE = (0, 100, 255)          # Karel's signature blue
+GROUND_GREEN = (0, 200, 0)          # Platform green
+GRID_COLOR = BLACK                   # Grid plus signs
+
+# ============================================================================
+# GAME OBJECT CLASSES
+# ============================================================================
 
 class Platform:
     """
     Platform class representing solid surfaces Karel can land on.
+    Used for both level platforms and the ground.
     """
     
     def __init__(self, x, y, width, height):
@@ -62,7 +88,13 @@ class Platform:
 class Karel:
     """
     Karel character class representing the player.
-    A blue 32x32 rectangle with a centered white 'K' label.
+    
+    Features:
+    - Blue 32x32 rectangle with white 'K' label
+    - Smooth horizontal movement with boundary checking
+    - Physics-based jumping and gravity
+    - Platform collision detection (top and bottom)
+    - Prevents double jumping and infinite jump exploits
     """
     
     def __init__(self, x, y):
@@ -113,7 +145,10 @@ class Karel:
                 self.velocity_y = TERMINAL_VELOCITY
     
     def check_platform_collision(self, platforms):
-        """Check if Karel is colliding with any platform."""
+        """
+        Check if Karel is colliding with any platform.
+        Handles both top and bottom collisions with proper edge case handling.
+        """
         karel_bottom = self.y + self.height
         karel_top = self.y
         self.on_ground = False
@@ -126,9 +161,9 @@ class Karel:
             
             if horizontal_overlap:
                 # Landing on top of platform (falling down)
-                if (self.velocity_y > 0 and 
+                if (self.velocity_y >= 0 and 
                     karel_bottom >= platform.y and 
-                    karel_bottom <= platform.y + platform.height):
+                    karel_bottom <= platform.y + platform.height + self.velocity_y):
                     
                     # Karel is landing on this platform
                     self.y = platform.y - self.height
@@ -139,7 +174,7 @@ class Karel:
                 # Hitting platform from below (jumping up)
                 elif (self.velocity_y < 0 and 
                       karel_top <= platform.y + platform.height and 
-                      karel_top >= platform.y):
+                      karel_top >= platform.y + self.velocity_y):
                     
                     # Karel hit platform from below, stop upward movement
                     self.y = platform.y + platform.height
@@ -192,9 +227,23 @@ class Karel:
         except pygame.error as e:
             print(f"WARNING: Karel label rendering error - {e}")
 
+# ============================================================================
+# MAIN GAME CLASS
+# ============================================================================
+
 class KarelGame:
     """
     Main game class that handles initialization, game loop, and cleanup.
+    
+    Responsibilities:
+    - Pygame system initialization and window creation
+    - Game loop management (60fps with proper timing)
+    - Event handling (input, window close)
+    - Game state updates (Karel movement, physics)
+    - Rendering (background, platforms, Karel, UI)
+    - Optional background image loading
+    - Clean resource cleanup on exit
+    
     Designed for Stanford CIP browser environment compatibility.
     """
     
@@ -245,8 +294,6 @@ class KarelGame:
             # Initialize game clock for FPS control
             self.clock = pygame.time.Clock()
             
-            print(f"Game initialized successfully: {WINDOW_WIDTH}x{WINDOW_HEIGHT}")
-            print(f"Running at {FPS} FPS")
             return True
             
         except pygame.error as e:
@@ -267,10 +314,9 @@ class KarelGame:
             if self.background_image.get_size() != (WINDOW_WIDTH, WINDOW_HEIGHT):
                 self.background_image = pygame.transform.scale(
                     self.background_image, (WINDOW_WIDTH, WINDOW_HEIGHT))
-            print(f"Background image loaded: {BACKGROUND_IMAGE_PATH}")
+            pass  # Background image loaded successfully
         except (pygame.error, FileNotFoundError):
-            print(f"Background image not found: {BACKGROUND_IMAGE_PATH}")
-            print("Using procedural Karel world background")
+            # Background image not found - use procedural background
             self.background_image = None
     
     def handle_events(self):
@@ -360,8 +406,6 @@ class KarelGame:
         Handles events, updates game state, and renders at consistent FPS.
         """
         self.running = True
-        print(f"Starting {GAME_TITLE}...")
-        print("Game loop running - close window or press ESC to quit")
         
         try:
             while self.running:
@@ -387,19 +431,17 @@ class KarelGame:
         Clean up pygame resources before exit.
         Ensures proper shutdown in CIP environment.
         """
-        print("Shutting down game...")
         pygame.quit()
-        print("Game shutdown complete")
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
 
 def main():
     """
     Entry point for Karel's Code Quest.
     Creates and runs the game instance.
     """
-    print("=" * 50)
-    print("Karel's Code Quest - Stanford CIP Final Project")
-    print("=" * 50)
-    
     # Create and run the game
     game = KarelGame()
     game.run()
