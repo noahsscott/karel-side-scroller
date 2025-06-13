@@ -62,6 +62,16 @@ WHITE = (255, 255, 255)
 KAREL_BLUE = (0, 100, 255)          # Karel's signature blue
 GROUND_GREEN = (0, 200, 0)          # Platform green
 GRID_COLOR = BLACK                   # Grid plus signs
+BEEPER_YELLOW = (255, 255, 0)       # Beeper color
+WALL_RED = (200, 0, 0)              # Wall color
+
+# Beeper System Constants
+BEEPER_RADIUS = 8                    # Beeper visual size
+BEEPER_COLLECTION_DISTANCE = 20     # Distance for Karel to collect beeper
+BEEPER_POINTS = 10                  # Points awarded per beeper
+
+# Wall System Constants
+WALL_SIZE = 32                       # Wall width and height
 
 # ============================================================================
 # GAME OBJECT CLASSES
@@ -84,6 +94,94 @@ class Platform:
     def draw(self, screen):
         """Draw the platform as a green rectangle."""
         pygame.draw.rect(screen, GROUND_GREEN, self.rect)
+
+class Beeper:
+    """
+    Beeper class representing collectible items in Karel's world.
+    
+    Features:
+    - Yellow circle with black 'B' text
+    - Strategic placement on platforms
+    - Collection detection with Karel
+    - Score value when collected
+    """
+    
+    def __init__(self, x, y):
+        """Initialize beeper at the given position."""
+        self.x = x
+        self.y = y
+        self.radius = BEEPER_RADIUS
+        self.collected = False
+        self.points = BEEPER_POINTS
+    
+    def check_collection(self, karel):
+        """
+        Check if Karel is close enough to collect this beeper.
+        Returns True if collected, False otherwise.
+        """
+        if self.collected:
+            return False
+        
+        # Calculate distance between Karel center and beeper center
+        karel_center_x = karel.x + karel.width // 2
+        karel_center_y = karel.y + karel.height // 2
+        
+        distance = ((karel_center_x - self.x) ** 2 + (karel_center_y - self.y) ** 2) ** 0.5
+        
+        if distance < BEEPER_COLLECTION_DISTANCE:
+            self.collected = True
+            print('Beep collected!')  # Sound effect placeholder
+            return True
+        
+        return False
+    
+    def draw(self, screen):
+        """Draw beeper as yellow circle with black 'B' text."""
+        if not self.collected:
+            # Draw yellow circle
+            pygame.draw.circle(screen, BEEPER_YELLOW, (int(self.x), int(self.y)), self.radius)
+            
+            # Draw black 'B' text centered on beeper
+            try:
+                font = pygame.font.Font(None, 16)
+                b_text = font.render('B', True, BLACK)
+                text_rect = b_text.get_rect(center=(int(self.x), int(self.y)))
+                screen.blit(b_text, text_rect)
+            except pygame.error as e:
+                print(f"WARNING: Beeper label rendering error - {e}")
+
+class Wall:
+    """
+    Wall class representing solid obstacles Karel must navigate around.
+    
+    Features:
+    - Red 32x32 rectangle with white 'W' text
+    - Solid collision from all directions
+    - Can act as platforms (Karel can land on top)
+    - Creates navigation challenges and puzzle elements
+    """
+    
+    def __init__(self, x, y):
+        """Initialize wall at the given position."""
+        self.x = x
+        self.y = y
+        self.width = WALL_SIZE
+        self.height = WALL_SIZE
+        self.rect = pygame.Rect(x, y, self.width, self.height)
+    
+    def draw(self, screen):
+        """Draw wall as red rectangle with white 'W' text."""
+        # Draw red rectangle
+        pygame.draw.rect(screen, WALL_RED, self.rect)
+        
+        # Draw white 'W' text centered on wall
+        try:
+            font = pygame.font.Font(None, 24)
+            w_text = font.render('W', True, WHITE)
+            text_rect = w_text.get_rect(center=(self.x + self.width//2, self.y + self.height//2))
+            screen.blit(w_text, text_rect)
+        except pygame.error as e:
+            print(f"WARNING: Wall label rendering error - {e}")
 
 class Karel:
     """
@@ -112,21 +210,51 @@ class Karel:
         # Create rectangle for collision detection
         self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
     
-    def move_left(self):
-        """Move Karel left while respecting screen boundaries."""
+    def move_left(self, walls):
+        """Move Karel left while respecting boundaries and walls."""
+        # Save original position
+        original_x = self.x
+        
+        # Try to move left
         self.x -= self.speed
-        # Boundary check - don't go past left edge
+        self.rect.x = self.x
+        
+        # Check boundary collision
         if self.x < 0:
             self.x = 0
-        self.rect.x = self.x
+            self.rect.x = self.x
+            return
+        
+        # Check wall collisions
+        for wall in walls:
+            if self.rect.colliderect(wall.rect):
+                # Collision detected - revert movement
+                self.x = original_x
+                self.rect.x = self.x
+                return
     
-    def move_right(self):
-        """Move Karel right while respecting screen boundaries."""
+    def move_right(self, walls):
+        """Move Karel right while respecting boundaries and walls."""
+        # Save original position
+        original_x = self.x
+        
+        # Try to move right
         self.x += self.speed
-        # Boundary check - don't go past right edge
+        self.rect.x = self.x
+        
+        # Check boundary collision
         if self.x > WINDOW_WIDTH - self.width:
             self.x = WINDOW_WIDTH - self.width
-        self.rect.x = self.x
+            self.rect.x = self.x
+            return
+        
+        # Check wall collisions
+        for wall in walls:
+            if self.rect.colliderect(wall.rect):
+                # Collision detected - revert movement
+                self.x = original_x
+                self.rect.x = self.x
+                return
     
     def jump(self):
         """Make Karel jump if on ground."""
@@ -144,40 +272,44 @@ class Karel:
             if self.velocity_y > TERMINAL_VELOCITY:
                 self.velocity_y = TERMINAL_VELOCITY
     
-    def check_platform_collision(self, platforms):
+    def check_platform_collision(self, platforms, walls):
         """
-        Check if Karel is colliding with any platform.
+        Check if Karel is colliding with any platform or wall.
         Handles both top and bottom collisions with proper edge case handling.
+        Walls act as platforms for landing but also block movement.
         """
         karel_bottom = self.y + self.height
         karel_top = self.y
         self.on_ground = False
         
-        # Check collision with all platforms (including ground)
-        for platform in platforms:
-            # Check if Karel is horizontally overlapping with platform
-            horizontal_overlap = (self.x + self.width > platform.x and 
-                                self.x < platform.x + platform.width)
+        # Combine platforms and walls for collision detection
+        all_obstacles = list(platforms) + list(walls)
+        
+        # Check collision with all obstacles (platforms and walls)
+        for obstacle in all_obstacles:
+            # Check if Karel is horizontally overlapping with obstacle
+            horizontal_overlap = (self.x + self.width > obstacle.x and 
+                                self.x < obstacle.x + obstacle.width)
             
             if horizontal_overlap:
-                # Landing on top of platform (falling down)
+                # Landing on top of obstacle (falling down)
                 if (self.velocity_y >= 0 and 
-                    karel_bottom >= platform.y and 
-                    karel_bottom <= platform.y + platform.height + self.velocity_y):
+                    karel_bottom >= obstacle.y and 
+                    karel_bottom <= obstacle.y + obstacle.height + self.velocity_y):
                     
-                    # Karel is landing on this platform
-                    self.y = platform.y - self.height
+                    # Karel is landing on this obstacle
+                    self.y = obstacle.y - self.height
                     self.velocity_y = 0
                     self.on_ground = True
                     break
                 
-                # Hitting platform from below (jumping up)
+                # Hitting obstacle from below (jumping up)
                 elif (self.velocity_y < 0 and 
-                      karel_top <= platform.y + platform.height and 
-                      karel_top >= platform.y + self.velocity_y):
+                      karel_top <= obstacle.y + obstacle.height and 
+                      karel_top >= obstacle.y + self.velocity_y):
                     
-                    # Karel hit platform from below, stop upward movement
-                    self.y = platform.y + platform.height
+                    # Karel hit obstacle from below, stop upward movement
+                    self.y = obstacle.y + obstacle.height
                     self.velocity_y = 0
                     break
         
@@ -187,13 +319,13 @@ class Karel:
             self.velocity_y = 0
             self.on_ground = True
     
-    def update(self, keys_pressed, platforms):
-        """Update Karel's position based on keyboard input and physics."""
+    def update(self, keys_pressed, platforms, walls):
+        """Update Karel's position based on keyboard input, physics, and obstacles."""
         # Handle horizontal movement
         if keys_pressed[pygame.K_LEFT]:
-            self.move_left()
+            self.move_left(walls)
         if keys_pressed[pygame.K_RIGHT]:
-            self.move_right()
+            self.move_right(walls)
         
         # Handle jumping
         if keys_pressed[pygame.K_SPACE]:
@@ -205,8 +337,8 @@ class Karel:
         # Update vertical position
         self.y += self.velocity_y
         
-        # Check platform collision
-        self.check_platform_collision(platforms)
+        # Check platform and wall collision
+        self.check_platform_collision(platforms, walls)
         
         # Update collision rectangle
         self.rect.x = self.x
@@ -253,6 +385,7 @@ class KarelGame:
         self.clock = None
         self.running = False
         self.background_image = None
+        self.score = 0
         
         # Initialize pygame with error handling
         if not self._initialize_pygame():
@@ -272,6 +405,48 @@ class KarelGame:
             Platform(600, 160, 100, 20),  # Platform 4 (highest)
             Platform(0, GROUND_LEVEL, WINDOW_WIDTH, GROUND_HEIGHT)  # Ground platform
         ]
+        
+        # Create beepers strategically placed above platforms
+        self.beepers = [
+            # Ground level beepers
+            Beeper(150, GROUND_LEVEL - 20),
+            Beeper(300, GROUND_LEVEL - 20),
+            
+            # Platform 1 beepers (200, 400, 100, 20) - place above platform
+            Beeper(220, 400 - 25),
+            Beeper(270, 400 - 25),
+            
+            # Platform 2 beepers (350, 320, 80, 20) - place above platform
+            Beeper(370, 320 - 25),
+            Beeper(400, 320 - 25),
+            
+            # Platform 3 beeper (480, 240, 120, 20) - place above platform
+            Beeper(520, 240 - 25),
+            
+            # Platform 4 beeper (600, 160, 100, 20) - highest platform
+            Beeper(650, 160 - 25),
+        ]
+        
+        # Create walls strategically placed to create navigation challenges
+        self.walls = [
+            # Wall 1: Ground level obstacle - forces jumping over
+            Wall(320, GROUND_LEVEL - WALL_SIZE),
+            
+            # Wall 2: Platform 2 obstacle - blocks direct path  
+            Wall(380, 320 - WALL_SIZE),
+            
+            # Wall 3: Platform 3 maze element
+            Wall(500, 240 - WALL_SIZE),
+            
+            # Wall 4: Additional challenge near Platform 1
+            Wall(250, 400 - WALL_SIZE),
+            
+            # Wall 5: High wall creating vertical challenge
+            Wall(550, 320 - WALL_SIZE),
+        ]
+        
+        # Adjust beeper positions to avoid all obstacle conflicts
+        self._resolve_beeper_obstacle_conflicts()
     
     def _initialize_pygame(self):
         """
@@ -319,6 +494,63 @@ class KarelGame:
             # Background image not found - use procedural background
             self.background_image = None
     
+    def _check_beeper_obstacle_collision(self, beeper_x, beeper_y):
+        """
+        Check if a beeper position conflicts with any wall or platform.
+        Returns True if there's a collision, False otherwise.
+        """
+        # Create temporary beeper area (using collection distance as buffer)
+        beeper_area = pygame.Rect(
+            beeper_x - BEEPER_COLLECTION_DISTANCE // 2,
+            beeper_y - BEEPER_COLLECTION_DISTANCE // 2,
+            BEEPER_COLLECTION_DISTANCE,
+            BEEPER_COLLECTION_DISTANCE
+        )
+        
+        # Check collision with all walls
+        for wall in self.walls:
+            if beeper_area.colliderect(wall.rect):
+                return True
+        
+        # Check collision with platforms (beeper should be above, not inside)
+        for platform in self.platforms:
+            # Check if beeper center is inside platform
+            if (beeper_x >= platform.x and beeper_x <= platform.x + platform.width and
+                beeper_y >= platform.y and beeper_y <= platform.y + platform.height):
+                return True
+        
+        return False
+    
+    def _resolve_beeper_obstacle_conflicts(self):
+        """
+        Identify and resolve conflicts between beepers and all obstacles (walls and platforms).
+        Moves beepers to nearby safe positions when conflicts are detected.
+        """
+        conflicts_resolved = 0
+        
+        for beeper in self.beepers:
+            if self._check_beeper_obstacle_collision(beeper.x, beeper.y):
+                conflicts_resolved += 1
+                # Try to find a safe position nearby
+                original_x, original_y = beeper.x, beeper.y
+                
+                # Try moving left or right in small increments
+                for offset in [-40, 40, -60, 60, -80, 80]:
+                    new_x = original_x + offset
+                    # Make sure it's still on screen and not conflicting
+                    if (0 <= new_x <= WINDOW_WIDTH and 
+                        not self._check_beeper_obstacle_collision(new_x, beeper.y)):
+                        beeper.x = new_x
+                        break
+                else:
+                    # If horizontal movement doesn't work, try vertical adjustment
+                    for y_offset in [-30, 30]:
+                        new_y = original_y + y_offset
+                        if (new_y > 0 and new_y < WINDOW_HEIGHT and
+                            not self._check_beeper_obstacle_collision(beeper.x, new_y)):
+                            beeper.y = new_y
+                            break
+    
     def handle_events(self):
         """
         Process all pygame events.
@@ -337,13 +569,18 @@ class KarelGame:
     def update(self):
         """
         Update game logic.
-        Handle Karel movement and other game mechanics.
+        Handle Karel movement, physics, wall collision, and beeper collection.
         """
         # Get currently pressed keys for smooth movement
         keys_pressed = pygame.key.get_pressed()
         
-        # Update Karel's position based on input and platforms
-        self.karel.update(keys_pressed, self.platforms)
+        # Update Karel's position based on input, platforms, and walls
+        self.karel.update(keys_pressed, self.platforms, self.walls)
+        
+        # Check beeper collection
+        for beeper in self.beepers:
+            if beeper.check_collection(self.karel):
+                self.score += beeper.points
     
     def draw_grid(self):
         """Draw Karel's signature grid background with plus signs."""
@@ -377,11 +614,24 @@ class KarelGame:
         for platform in self.platforms:
             platform.draw(self.screen)
         
+        # Draw all walls
+        for wall in self.walls:
+            wall.draw(self.screen)
+        
+        # Draw all beepers
+        for beeper in self.beepers:
+            beeper.draw(self.screen)
+        
         # Draw Karel character
         self.karel.draw(self.screen)
         
         # Draw UI elements
         try:
+            # Score display in top-left corner
+            score_font = pygame.font.Font(None, 28)
+            score_text = score_font.render(f"Score: {self.score}", True, BLACK)
+            self.screen.blit(score_text, (10, 10))
+            
             # Game title at top center
             title_font = pygame.font.Font(None, 36)
             title_text = title_font.render("Karel's Code Quest", True, BLACK)
@@ -389,8 +639,8 @@ class KarelGame:
             self.screen.blit(title_text, title_rect)
             
             # Instructions at bottom
-            instruction_font = pygame.font.Font(None, 24)
-            instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump", True, BLACK)
+            instruction_font = pygame.font.Font(None, 20)
+            instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Collect Beepers, Navigate Walls!", True, BLACK)
             instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
             self.screen.blit(instruction_text, instruction_rect)
             
