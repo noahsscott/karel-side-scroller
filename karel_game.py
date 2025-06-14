@@ -43,7 +43,7 @@ WORLD_WIDTH = 3200               # Total world width (Mario-style level)
 WORLD_HEIGHT = WINDOW_HEIGHT     # Keep same height
 
 # Karel Character Settings
-KAREL_SIZE = 32
+KAREL_SIZE = 60
 KAREL_SPEED = 5
 KAREL_START_X = 50
 KAREL_START_Y = WINDOW_HEIGHT - 100
@@ -56,11 +56,12 @@ GROUND_HEIGHT = 50           # Height of ground platform
 GROUND_LEVEL = WINDOW_HEIGHT - GROUND_HEIGHT
 
 # Visual Style Settings
-GRID_SIZE = 25               # Size of Karel world grid squares
+GRID_SIZE = 70               # Size of Karel world grid squares
 BACKGROUND_IMAGE_PATH = "background.png"  # Optional background image
+KAREL_IMAGE_PATH = "karel.png"            # Karel character image
 
 # Color Palette (Authentic Karel World Aesthetic)
-KAREL_BACKGROUND = (240, 240, 240)  # Light gray background
+KAREL_BACKGROUND = (255, 255, 255)  # White background
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 KAREL_BLUE = (0, 100, 255)          # Karel's signature blue
@@ -93,6 +94,16 @@ PARTICLE_SPEED = 3                   # Particle movement speed
 SHAKE_DURATION = 20                  # Frames screen shakes
 SHAKE_INTENSITY = 5                  # Shake pixel range
 WIN_SCREEN_DURATION = 180            # 3 seconds at 60fps
+
+# Lives System Constants
+STARTING_LIVES = 3                   # Number of lives Karel starts with
+INVINCIBILITY_DURATION = 120         # 2 seconds at 60fps
+RESPAWN_DELAY = 60                   # 1 second delay before respawn
+DEATH_THRESHOLD = WINDOW_HEIGHT + 50 # Y position that triggers death
+
+# Hazard System Constants
+HAZARD_SIZE = 20                     # Spike hazard size
+HAZARD_COLOR = (200, 0, 0)           # Red color for spikes
 
 # ============================================================================
 # GAME OBJECT CLASSES
@@ -231,77 +242,82 @@ class Particle:
             size = max(1, int(3 * alpha))
             pygame.draw.circle(screen, color, (int(screen_x), int(screen_y)), size)
 
-class Staircase:
+class Hazard:
     """
-    Solid staircase object with proper collision detection.
+    Spike hazard that damages Karel on contact.
     
     Features:
-    - One solid object instead of separate platforms
-    - Proper step-by-step collision detection
-    - Karel can walk up each step smoothly
+    - Red triangular spikes
+    - Strategic placement on platforms
+    - Collision detection with Karel
+    - Triggers death and respawn
+    """
+    
+    def __init__(self, x, y):
+        """Initialize hazard at given position."""
+        self.x = x
+        self.y = y
+        self.width = HAZARD_SIZE
+        self.height = HAZARD_SIZE
+        self.rect = pygame.Rect(x, y, self.width, self.height)
+    
+    def check_collision(self, karel_rect):
+        """Check if Karel is touching this hazard."""
+        return karel_rect.colliderect(self.rect)
+    
+    def draw(self, screen):
+        """Draw hazard as red triangular spikes."""
+        # Draw three triangular spikes
+        spike_width = self.width // 3
+        for i in range(3):
+            spike_x = self.x + i * spike_width
+            spike_points = [
+                (spike_x, self.y + self.height),              # Bottom left
+                (spike_x + spike_width, self.y + self.height), # Bottom right
+                (spike_x + spike_width // 2, self.y)          # Top center
+            ]
+            pygame.draw.polygon(screen, HAZARD_COLOR, spike_points)
+            pygame.draw.polygon(screen, BLACK, spike_points, 1)  # Black outline
+
+class Staircase:
+    """
+    Simple solid staircase made of individual platform steps.
+    
+    Features:
+    - Each step is a solid platform rectangle
     - No gaps or collision issues
+    - Uses standard platform collision system
+    - Reliable step-by-step movement
     """
     
     def __init__(self, start_x, start_y, step_width, step_height, num_steps):
-        """Initialize staircase with given parameters."""
+        """Initialize staircase as individual platform steps."""
         self.start_x = start_x
         self.start_y = start_y
         self.step_width = step_width
         self.step_height = step_height
         self.num_steps = num_steps
         
-        # Create collision rectangles for each step
-        self.step_rects = []
+        # Create individual platform objects for each step
+        self.step_platforms = []
         for i in range(num_steps):
             step_x = start_x + i * step_width
             step_y = start_y - (i + 1) * step_height
-            step_rect = pygame.Rect(step_x, step_y, step_width, (i + 1) * step_height + GROUND_HEIGHT)
-            self.step_rects.append(step_rect)
+            # Each step is a solid platform from its top to the ground
+            step_platform = Platform(step_x, step_y, step_width, (i + 1) * step_height + GROUND_HEIGHT)
+            self.step_platforms.append(step_platform)
     
-    def check_collision(self, karel_rect, karel_velocity_y):
-        """
-        Check collision with staircase and return appropriate landing position.
-        Returns (collision_detected, new_y_position, on_ground_status)
-        """
-        karel_bottom = karel_rect.bottom
-        karel_top = karel_rect.top
-        
-        # Check each step from highest to lowest (for proper layering)
-        for i in reversed(range(self.num_steps)):
-            step_rect = self.step_rects[i]
-            
-            # Check if Karel is horizontally overlapping with this step
-            if (karel_rect.left < step_rect.right and karel_rect.right > step_rect.left):
-                
-                # Landing on top of step (falling down)
-                if (karel_velocity_y >= 0 and 
-                    karel_bottom >= step_rect.top and 
-                    karel_bottom <= step_rect.top + karel_velocity_y + 10):  # Small buffer
-                    
-                    new_y = step_rect.top - karel_rect.height
-                    return True, new_y, True
-                
-                # Hitting step from below (jumping up)
-                elif (karel_velocity_y < 0 and 
-                      karel_top <= step_rect.bottom and 
-                      karel_top >= step_rect.bottom + karel_velocity_y - 10):  # Small buffer
-                    
-                    new_y = step_rect.bottom
-                    return True, new_y, False
-        
-        return False, karel_rect.y, False
+    def get_platforms(self):
+        """Return list of platform objects for collision detection."""
+        return self.step_platforms
     
     def draw(self, screen, camera):
-        """Draw the staircase."""
-        for i in range(self.num_steps):
-            step_rect = self.step_rects[i]
-            
-            # Only draw if visible
-            if camera.is_visible(step_rect.x, step_rect.y, step_rect.width, step_rect.height):
-                screen_x, screen_y = camera.get_screen_pos(step_rect.x, step_rect.y)
-                screen_rect = pygame.Rect(screen_x, screen_y, step_rect.width, step_rect.height)
+        """Draw the staircase as individual platform steps."""
+        for platform in self.step_platforms:
+            if camera.is_visible(platform.x, platform.y, platform.width, platform.height):
+                screen_x, screen_y = camera.get_screen_pos(platform.x, platform.y)
+                screen_rect = pygame.Rect(screen_x, screen_y, platform.width, platform.height)
                 pygame.draw.rect(screen, GROUND_GREEN, screen_rect)
-                pygame.draw.rect(screen, BLACK, screen_rect, 2)  # Black outline
 
 class Flagpole:
     """
@@ -476,6 +492,11 @@ class Karel:
         self.velocity_y = 0
         self.on_ground = False
         
+        # Animation variables
+        self.facing_right = True
+        self.walking = False
+        self.walk_timer = 0
+        
         # Create rectangle for collision detection
         self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
     
@@ -488,10 +509,15 @@ class Karel:
         self.x -= self.speed
         self.rect.x = self.x
         
+        # Update animation state
+        self.facing_right = False
+        self.walking = True
+        
         # Check boundary collision
         if self.x < 0:
             self.x = 0
             self.rect.x = self.x
+            self.walking = False
             return
         
         # Check wall collisions
@@ -500,6 +526,7 @@ class Karel:
                 # Collision detected - revert movement
                 self.x = original_x
                 self.rect.x = self.x
+                self.walking = False
                 return
     
     def move_right(self, walls):
@@ -511,10 +538,15 @@ class Karel:
         self.x += self.speed
         self.rect.x = self.x
         
+        # Update animation state
+        self.facing_right = True
+        self.walking = True
+        
         # Check world boundary collision (can move to edge of world)
         if self.x > WORLD_WIDTH - self.width:
             self.x = WORLD_WIDTH - self.width
             self.rect.x = self.x
+            self.walking = False
             return
         
         # Check wall collisions
@@ -523,6 +555,7 @@ class Karel:
                 # Collision detected - revert movement
                 self.x = original_x
                 self.rect.x = self.x
+                self.walking = False
                 return
     
     def jump(self):
@@ -553,20 +586,10 @@ class Karel:
         self.on_ground = False
         karel_rect = pygame.Rect(self.x, self.y, self.width, self.height)
         
-        # Check staircase collision first (priority)
-        if staircase:
-            collision, new_y, on_ground = staircase.check_collision(karel_rect, self.velocity_y)
-            if collision:
-                self.y = new_y
-                if on_ground:
-                    self.velocity_y = 0
-                    self.on_ground = True
-                else:
-                    self.velocity_y = 0
-                return
-        
-        # Combine platforms and walls for collision detection
+        # Combine platforms, walls, and staircase platforms for collision detection
         all_obstacles = list(platforms) + list(walls)
+        if staircase:
+            all_obstacles.extend(staircase.get_platforms())
         
         # Check collision with all obstacles (platforms and walls)
         for obstacle in all_obstacles:
@@ -601,11 +624,20 @@ class Karel:
     
     def update(self, keys_pressed, platforms, walls, staircase=None):
         """Update Karel's position based on keyboard input, physics, and obstacles."""
+        # Reset walking state
+        self.walking = False
+        
         # Handle horizontal movement
         if keys_pressed[pygame.K_LEFT]:
             self.move_left(walls)
         if keys_pressed[pygame.K_RIGHT]:
             self.move_right(walls)
+        
+        # Update walk animation timer
+        if self.walking:
+            self.walk_timer += 1
+        else:
+            self.walk_timer = 0
         
         # Handle jumping
         if keys_pressed[pygame.K_SPACE]:
@@ -621,14 +653,8 @@ class Karel:
         self.check_platform_collision(platforms, walls, staircase)
         
         # Check if Karel fell into a gap (below screen)
-        if self.y > WINDOW_HEIGHT + 100:  # Give some buffer
-            # Reset Karel to starting position (Mario-style)
-            self.x = KAREL_START_X
-            self.y = KAREL_START_Y
-            self.velocity_y = 0
-            self.on_ground = False
-            print("Karel fell! Respawn at start.")
-            return True  # Signal screen shake
+        if self.y > DEATH_THRESHOLD:
+            return True  # Signal death
         return False
         
         # Update collision rectangle
@@ -676,6 +702,7 @@ class KarelGame:
         self.clock = None
         self.running = False
         self.background_image = None
+        self.karel_image = None
         self.score = 0
         self.game_won = False
         self.win_timer = 0
@@ -684,12 +711,23 @@ class KarelGame:
         self.camera_shake_x = 0
         self.camera_shake_y = 0
         
+        # Lives system
+        self.lives = STARTING_LIVES
+        self.game_over = False
+        self.invincible = False
+        self.invincibility_timer = 0
+        self.respawn_timer = 0
+        self.respawning = False
+        
         # Initialize pygame with error handling
         if not self._initialize_pygame():
             sys.exit(1)
         
         # Load background image (optional)
         self._load_background_image()
+        
+        # Load Karel image (optional)
+        self._load_karel_image()
         
         # Create camera system
         self.camera = Camera()
@@ -699,6 +737,9 @@ class KarelGame:
         
         # Load extended level data
         self._create_level_data()
+        
+        # Create hazards
+        self._create_hazards()
         
         # Create solid staircase 
         self.staircase = Staircase(
@@ -761,6 +802,23 @@ class KarelGame:
             # Background image not found - use procedural background
             self.background_image = None
     
+    def _load_karel_image(self):
+        """
+        Load Karel character image if available.
+        Falls back to blue rectangle if image not found.
+        """
+        try:
+            self.karel_image = pygame.image.load(KAREL_IMAGE_PATH)
+            # Scale to Karel size
+            if self.karel_image.get_size() != (KAREL_SIZE, KAREL_SIZE):
+                self.karel_image = pygame.transform.scale(
+                    self.karel_image, (KAREL_SIZE, KAREL_SIZE))
+            print(f"Karel image loaded successfully: {KAREL_IMAGE_PATH}")
+        except (pygame.error, FileNotFoundError):
+            # Karel image not found - use blue rectangle
+            self.karel_image = None
+            print(f"Karel image not found, using blue rectangle placeholder")
+    
     def _create_level_data(self):
         """
         Create extended Mario-style level layout across the 3200px world.
@@ -819,6 +877,17 @@ class KarelGame:
             Beeper(2000, GROUND_LEVEL - 100),        # Above big gap - very risky!
             Beeper(2800, 280 - 25),                  # Near end
             Beeper(3050, 280 - 25),                  # Victory platform
+        ]
+    
+    def _create_hazards(self):
+        """Create spike hazards at strategic locations."""
+        self.hazards = [
+            # Place hazards on platforms for extra challenge (visible red spikes)
+            Hazard(250, 400 - HAZARD_SIZE),          # Platform 1 - side challenge
+            Hazard(1050, 280 - HAZARD_SIZE),         # Mid platform - adds challenge  
+            Hazard(1450, 320 - HAZARD_SIZE),         # Rest platform - optional danger
+            Hazard(2500, 220 - HAZARD_SIZE),         # Final challenge platform
+            Hazard(2750, GROUND_LEVEL - HAZARD_SIZE), # Ground hazard before stairs
         ]
     
     def _check_beeper_obstacle_collision(self, beeper_x, beeper_y):
@@ -892,24 +961,47 @@ class KarelGame:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
-                elif event.key == pygame.K_r and self.game_won and self.win_timer <= 60:
-                    # Restart game
-                    self.restart_game()
+                elif event.key == pygame.K_r:
+                    if (self.game_won and self.win_timer <= 60) or self.game_over:
+                        # Restart game
+                        self.restart_game()
     
     def update(self):
         """
         Update game logic.
         Handle Karel movement, physics, wall collision, and beeper collection.
         """
-        # Don't update Karel if game is won
-        if not self.game_won:
+        # Don't update Karel if game is won or game over
+        if not self.game_won and not self.game_over:
+            # Handle respawn timer
+            if self.respawning:
+                self.respawn_timer -= 1
+                if self.respawn_timer <= 0:
+                    self._respawn_karel()
+                return
+            
             # Get currently pressed keys for smooth movement
             keys_pressed = pygame.key.get_pressed()
             
             # Update Karel's position based on input, platforms, and walls
             if self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase):
-                # Karel fell - trigger screen shake
-                self.screen_shake = SHAKE_DURATION
+                # Karel fell - trigger death
+                self._karel_died()
+                return
+            
+            # Check hazard collisions (only if not invincible)
+            if not self.invincible:
+                karel_rect = pygame.Rect(self.karel.x, self.karel.y, self.karel.width, self.karel.height)
+                for hazard in self.hazards:
+                    if hazard.check_collision(karel_rect):
+                        self._karel_died()
+                        return
+            
+            # Update invincibility
+            if self.invincible:
+                self.invincibility_timer -= 1
+                if self.invincibility_timer <= 0:
+                    self.invincible = False
         
         # Update camera to follow Karel (with shake)
         self.camera.update(self.karel)
@@ -945,6 +1037,49 @@ class KarelGame:
         if self.game_won and self.win_timer > 0:
             self.win_timer -= 1
     
+    def _karel_died(self):
+        """Handle Karel's death - reduce lives and start respawn."""
+        self.lives -= 1
+        self.screen_shake = SHAKE_DURATION
+        
+        if self.lives <= 0:
+            # Game over
+            self.game_over = True
+            print("💀 GAME OVER! Press R to restart.")
+        else:
+            # Start respawn process
+            self.respawning = True
+            self.respawn_timer = RESPAWN_DELAY
+            print(f"💔 Karel died! Lives remaining: {self.lives}")
+    
+    def _respawn_karel(self):
+        """Respawn Karel at safe position near current camera view with invincibility."""
+        # Find a safe respawn position on current screen or nearby
+        respawn_x = max(50, self.camera.x + 50)  # Left edge of screen + buffer
+        respawn_y = KAREL_START_Y
+        
+        # Make sure respawn position is on solid ground
+        for platform in self.platforms:
+            if (respawn_x >= platform.x and respawn_x <= platform.x + platform.width and
+                platform.y <= GROUND_LEVEL):
+                respawn_y = platform.y - KAREL_SIZE
+                break
+        
+        # Set Karel's new position
+        self.karel.x = respawn_x
+        self.karel.y = respawn_y
+        self.karel.velocity_y = 0
+        self.karel.on_ground = False
+        
+        # Grant invincibility
+        self.invincible = True
+        self.invincibility_timer = INVINCIBILITY_DURATION
+        
+        # End respawning state
+        self.respawning = False
+        
+        print(f"✨ Karel respawned with invincibility at ({respawn_x}, {respawn_y})!")
+    
     def draw_grid(self):
         """Draw Karel's signature grid background with plus signs."""
         # Calculate grid range based on camera position
@@ -952,20 +1087,21 @@ class KarelGame:
         end_x = start_x + WINDOW_WIDTH + GRID_SIZE
         
         # Draw plus signs at grid intersections (camera-relative)
+        # Start 35px from bottom, then every 70px
         for world_x in range(start_x, end_x + 1, GRID_SIZE):
-            for world_y in range(0, WINDOW_HEIGHT + 1, GRID_SIZE):
+            for world_y in range(WINDOW_HEIGHT - 35, -1, -GRID_SIZE):
                 screen_x, screen_y = self.camera.get_screen_pos(world_x, world_y)
                 
                 # Only draw if on screen
                 if 0 <= screen_x <= WINDOW_WIDTH:
                     # Draw plus sign at each intersection
                     plus_size = 3
-                    # Horizontal line of plus
+                    # Horizontal line of plus (2 pixels thick)
                     pygame.draw.line(self.screen, GRID_COLOR, 
-                                   (screen_x - plus_size, screen_y), (screen_x + plus_size, screen_y), 1)
-                    # Vertical line of plus
+                                   (screen_x - plus_size, screen_y), (screen_x + plus_size, screen_y), 2)
+                    # Vertical line of plus (2 pixels thick)
                     pygame.draw.line(self.screen, GRID_COLOR, 
-                                   (screen_x, screen_y - plus_size), (screen_x, screen_y + plus_size), 1)
+                                   (screen_x, screen_y - plus_size), (screen_x, screen_y + plus_size), 2)
     
     def draw(self):
         """
@@ -1005,7 +1141,25 @@ class KarelGame:
                     pass
         
         # Draw staircase
-        self.staircase.draw(self.screen, self.camera)
+        if self.staircase:
+            self.staircase.draw(self.screen, self.camera)
+        
+        # Draw hazards (red spikes) with screen shake
+        for hazard in self.hazards:
+            if self.camera.is_visible(hazard.x, hazard.y, hazard.width, hazard.height):
+                screen_x, screen_y = self.camera.get_screen_pos(hazard.x, hazard.y, self.camera_shake_x, self.camera_shake_y)
+                
+                # Draw red triangular spikes
+                spike_width = hazard.width // 3
+                for i in range(3):
+                    spike_x = screen_x + i * spike_width
+                    spike_points = [
+                        (spike_x, screen_y + hazard.height),              # Bottom left
+                        (spike_x + spike_width, screen_y + hazard.height), # Bottom right
+                        (spike_x + spike_width // 2, screen_y)            # Top center
+                    ]
+                    pygame.draw.polygon(self.screen, HAZARD_COLOR, spike_points)
+                    pygame.draw.polygon(self.screen, BLACK, spike_points, 1)  # Black outline
         
         # Draw all beepers (only visible and uncollected ones) with screen shake
         for beeper in self.beepers:
@@ -1060,19 +1214,39 @@ class KarelGame:
         for particle in self.particles:
             particle.draw(self.screen, self.camera)
         
-        # Draw Karel character with screen shake
+        # Draw Karel character with screen shake and animation
         screen_x, screen_y = self.camera.get_screen_pos(self.karel.x, self.karel.y, self.camera_shake_x, self.camera_shake_y)
-        screen_rect = pygame.Rect(screen_x, screen_y, self.karel.width, self.karel.height)
-        pygame.draw.rect(self.screen, KAREL_BLUE, screen_rect)
         
-        # Draw Karel's 'K' text
-        try:
-            font = pygame.font.Font(None, 24)
-            k_text = font.render('K', True, WHITE)
-            text_rect = k_text.get_rect(center=(screen_x + self.karel.width//2, screen_y + self.karel.height//2))
-            self.screen.blit(k_text, text_rect)
-        except pygame.error:
-            pass
+        # Add walking bob animation (simple up/down movement)
+        bob_offset = 0
+        if self.karel.walking:
+            # Create faster bobbing effect every 5 frames for cute little steps
+            bob_cycle = (self.karel.walk_timer // 5) % 2
+            bob_offset = -2 if bob_cycle == 0 else 2
+        
+        final_y = screen_y + bob_offset
+        
+        # Use Karel image if available, otherwise blue rectangle
+        if self.karel_image:
+            # Flip image based on direction
+            karel_surface = self.karel_image
+            if not self.karel.facing_right:
+                karel_surface = pygame.transform.flip(self.karel_image, True, False)
+            
+            self.screen.blit(karel_surface, (screen_x, final_y))
+        else:
+            # Fallback to blue rectangle with 'K'
+            screen_rect = pygame.Rect(screen_x, final_y, self.karel.width, self.karel.height)
+            pygame.draw.rect(self.screen, KAREL_BLUE, screen_rect)
+            
+            # Draw Karel's 'K' text
+            try:
+                font = pygame.font.Font(None, 36)  # Bigger font for bigger Karel
+                k_text = font.render('K', True, WHITE)
+                text_rect = k_text.get_rect(center=(screen_x + self.karel.width//2, final_y + self.karel.height//2))
+                self.screen.blit(k_text, text_rect)
+            except pygame.error:
+                pass
         
         # Draw UI elements
         try:
@@ -1080,31 +1254,58 @@ class KarelGame:
             score_font = pygame.font.Font(None, 28)
             beepers_collected = sum(1 for b in self.beepers if b.collected)
             total_beepers = len(self.beepers)
-            score_text = score_font.render(f"Score: {self.score} | Beepers: {beepers_collected}/{total_beepers}", True, BLACK)
+            score_text = score_font.render(f"Score: {self.score}", True, BLACK)
             self.screen.blit(score_text, (10, 10))
             
-            # Game title at top center
-            title_font = pygame.font.Font(None, 36)
+            # Lives display in top-right corner (Mario-style)
+            lives_font = pygame.font.Font(None, 28)
+            hearts = "♥" * self.lives + "♡" * (STARTING_LIVES - self.lives)  # Filled and empty hearts
+            lives_text = lives_font.render(f"Lives: {hearts}", True, BLACK)
+            lives_rect = lives_text.get_rect(topright=(WINDOW_WIDTH - 10, 10))
+            self.screen.blit(lives_text, lives_rect)
+            
+            # Victory message only when won
             if self.game_won:
+                title_font = pygame.font.Font(None, 36)
                 title_text = title_font.render("🎉 VICTORY! Code Quest Complete! 🎉", True, BLACK)
-            else:
-                title_text = title_font.render("Karel's Code Quest", True, BLACK)
-            title_rect = title_text.get_rect(center=(WINDOW_WIDTH//2, 25))
-            self.screen.blit(title_text, title_rect)
+                title_rect = title_text.get_rect(center=(WINDOW_WIDTH//2, 25))
+                self.screen.blit(title_text, title_rect)
             
             # Instructions at bottom
             instruction_font = pygame.font.Font(None, 20)
-            if self.game_won and self.win_timer > 0:
+            if self.game_over:
+                # Game over screen
+                game_over_font = pygame.font.Font(None, 36)
+                game_over_text = game_over_font.render("💀 GAME OVER! 💀", True, BLACK)
+                game_over_rect = game_over_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 20))
+                self.screen.blit(game_over_text, game_over_rect)
+                
+                instruction_text = instruction_font.render("Press R to Restart", True, BLACK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 + 20))
+                self.screen.blit(instruction_text, instruction_rect)
+            elif self.game_won and self.win_timer > 0:
                 # Win screen display
                 instruction_text = instruction_font.render(f"LEVEL COMPLETE! Final Score: {self.score}", True, BLACK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
+                self.screen.blit(instruction_text, instruction_rect)
                 if self.win_timer < 60:  # Last second
                     restart_text = instruction_font.render("Press R to Restart", True, BLACK)
                     restart_rect = restart_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 40))
                     self.screen.blit(restart_text, restart_rect)
+            elif self.respawning:
+                # Respawning message
+                instruction_text = instruction_font.render(f"Respawning... Lives: {self.lives}", True, BLACK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
+                self.screen.blit(instruction_text, instruction_rect)
+            elif self.invincible:
+                # Invincibility message
+                instruction_text = instruction_font.render("✨ INVINCIBLE! ✨ Avoid red spikes!", True, BLACK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
+                self.screen.blit(instruction_text, instruction_rect)
             else:
-                instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Climb Stairs & Jump to Flagpole!", True, BLACK)
-            instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
-            self.screen.blit(instruction_text, instruction_rect)
+                instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Avoid Spikes, Reach Flagpole!", True, BLACK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
+                self.screen.blit(instruction_text, instruction_rect)
             
         except pygame.error as e:
             print(f"WARNING: Text rendering error - {e}")
@@ -1149,6 +1350,14 @@ class KarelGame:
         self.screen_shake = 0
         self.camera_shake_x = 0
         self.camera_shake_y = 0
+        
+        # Reset lives system
+        self.lives = STARTING_LIVES
+        self.game_over = False
+        self.invincible = False
+        self.invincibility_timer = 0
+        self.respawn_timer = 0
+        self.respawning = False
         
         # Reset Karel
         self.karel = Karel(KAREL_START_X, KAREL_START_Y)
