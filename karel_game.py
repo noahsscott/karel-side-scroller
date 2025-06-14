@@ -80,7 +80,7 @@ WALL_SIZE = 32                       # Wall width and height
 # Goal Flag System Constants
 GOAL_FLAG_WIDTH = 20                 # Goal flag width
 GOAL_FLAG_HEIGHT = 40                # Goal flag height
-GOAL_FLAG_X = 580                    # Goal flag x position
+GOAL_FLAG_X = 3100                   # Goal flag x position (near level end)
 GOAL_BASE_COLOR = (255, 0, 0)        # Red (0% beepers)
 GOAL_MAX_COLOR = (0, 255, 0)         # Green (100% beepers)
 
@@ -227,7 +227,7 @@ class Particle:
         if self.lifetime > 0:
             screen_x, screen_y = camera.get_screen_pos(self.x, self.y)
             alpha = self.lifetime / self.max_lifetime
-            color = (255, 255, 255)  # White particles
+            color = (100, 150, 255)  # Blue particles
             size = max(1, int(3 * alpha))
             pygame.draw.circle(screen, color, (int(screen_x), int(screen_y)), size)
 
@@ -242,10 +242,10 @@ class GoalFlag:
     - Positioned at level end for clear target
     """
     
-    def __init__(self, highest_platform_y):
-        """Initialize goal flag at calculated position."""
+    def __init__(self):
+        """Initialize goal flag at level end position."""
         self.x = GOAL_FLAG_X
-        self.base_y = highest_platform_y - GOAL_FLAG_HEIGHT
+        self.base_y = GROUND_LEVEL - GOAL_FLAG_HEIGHT - 10  # Above ground level
         self.width = GOAL_FLAG_WIDTH
         self.height = GOAL_FLAG_HEIGHT
         self.reached = False
@@ -604,9 +604,8 @@ class KarelGame:
         # Load extended level data
         self._create_level_data()
         
-        # Create goal flag (after level data to get highest platform)
-        highest_platform_y = min(platform.y for platform in self.platforms[1:])  # Skip ground
-        self.goal_flag = GoalFlag(highest_platform_y)
+        # Create goal flag at level end
+        self.goal_flag = GoalFlag()
         
         # Adjust beeper positions to avoid all obstacle conflicts
         self._resolve_beeper_obstacle_conflicts()
@@ -1044,8 +1043,7 @@ class KarelGame:
             beeper.collected = False
         
         # Reset goal flag
-        highest_platform_y = min(platform.y for platform in self.platforms[1:])
-        self.goal_flag = GoalFlag(highest_platform_y)
+        self.goal_flag = GoalFlag()
     
     def cleanup(self):
         """
