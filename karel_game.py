@@ -231,7 +231,79 @@ class Particle:
             size = max(1, int(3 * alpha))
             pygame.draw.circle(screen, color, (int(screen_x), int(screen_y)), size)
 
-class GoalFlag:
+class Staircase:
+    """
+    Solid staircase object with proper collision detection.
+    
+    Features:
+    - One solid object instead of separate platforms
+    - Proper step-by-step collision detection
+    - Karel can walk up each step smoothly
+    - No gaps or collision issues
+    """
+    
+    def __init__(self, start_x, start_y, step_width, step_height, num_steps):
+        """Initialize staircase with given parameters."""
+        self.start_x = start_x
+        self.start_y = start_y
+        self.step_width = step_width
+        self.step_height = step_height
+        self.num_steps = num_steps
+        
+        # Create collision rectangles for each step
+        self.step_rects = []
+        for i in range(num_steps):
+            step_x = start_x + i * step_width
+            step_y = start_y - (i + 1) * step_height
+            step_rect = pygame.Rect(step_x, step_y, step_width, (i + 1) * step_height + GROUND_HEIGHT)
+            self.step_rects.append(step_rect)
+    
+    def check_collision(self, karel_rect, karel_velocity_y):
+        """
+        Check collision with staircase and return appropriate landing position.
+        Returns (collision_detected, new_y_position, on_ground_status)
+        """
+        karel_bottom = karel_rect.bottom
+        karel_top = karel_rect.top
+        
+        # Check each step from highest to lowest (for proper layering)
+        for i in reversed(range(self.num_steps)):
+            step_rect = self.step_rects[i]
+            
+            # Check if Karel is horizontally overlapping with this step
+            if (karel_rect.left < step_rect.right and karel_rect.right > step_rect.left):
+                
+                # Landing on top of step (falling down)
+                if (karel_velocity_y >= 0 and 
+                    karel_bottom >= step_rect.top and 
+                    karel_bottom <= step_rect.top + karel_velocity_y + 10):  # Small buffer
+                    
+                    new_y = step_rect.top - karel_rect.height
+                    return True, new_y, True
+                
+                # Hitting step from below (jumping up)
+                elif (karel_velocity_y < 0 and 
+                      karel_top <= step_rect.bottom and 
+                      karel_top >= step_rect.bottom + karel_velocity_y - 10):  # Small buffer
+                    
+                    new_y = step_rect.bottom
+                    return True, new_y, False
+        
+        return False, karel_rect.y, False
+    
+    def draw(self, screen, camera):
+        """Draw the staircase."""
+        for i in range(self.num_steps):
+            step_rect = self.step_rects[i]
+            
+            # Only draw if visible
+            if camera.is_visible(step_rect.x, step_rect.y, step_rect.width, step_rect.height):
+                screen_x, screen_y = camera.get_screen_pos(step_rect.x, step_rect.y)
+                screen_rect = pygame.Rect(screen_x, screen_y, step_rect.width, step_rect.height)
+                pygame.draw.rect(screen, GROUND_GREEN, screen_rect)
+                pygame.draw.rect(screen, BLACK, screen_rect, 2)  # Black outline
+
+class Flagpole:
     """
     Dynamic goal flag that changes height and color based on beeper collection.
     
@@ -243,12 +315,15 @@ class GoalFlag:
     """
     
     def __init__(self):
-        """Initialize goal flag at level end position."""
-        self.x = GOAL_FLAG_X
-        self.base_y = GROUND_LEVEL - GOAL_FLAG_HEIGHT - 10  # Above ground level
-        self.width = GOAL_FLAG_WIDTH
-        self.height = GOAL_FLAG_HEIGHT
+        """Initialize flagpole at end position."""
+        self.pole_x = 3180  # FLAGPOLE_X (positioned after stairs at 3165)
+        self.pole_width = 12  # FLAGPOLE_WIDTH (slightly thicker)
+        self.base_height = 280  # FLAGPOLE_BASE_HEIGHT (much taller like Mario)
         self.reached = False
+        
+        # Calculate pole position (extends from ground up)
+        self.pole_y = GROUND_LEVEL - self.base_height
+        self.pole_rect = pygame.Rect(self.pole_x, self.pole_y, self.pole_width, self.base_height)
     
     def get_flag_color(self, beeper_percentage):
         """
@@ -274,49 +349,57 @@ class GoalFlag:
     
     def get_flag_height(self, beeper_percentage):
         """
-        Calculate flag height based on beeper collection percentage.
-        Minimum 50% height, maximum 150% height.
+        Calculate flag position on pole based on beeper collection.
+        Higher percentage = flag higher on pole
         """
-        min_height = GOAL_FLAG_HEIGHT * 0.5
-        max_height = GOAL_FLAG_HEIGHT * 1.5
-        return min_height + (max_height - min_height) * beeper_percentage
+        # Flag moves from bottom 25% to top 10% of pole
+        min_height_ratio = 0.75  # Flag at 75% down pole (25% from bottom)
+        max_height_ratio = 0.1   # Flag at 10% down pole (90% from bottom)
+        height_ratio = min_height_ratio - (min_height_ratio - max_height_ratio) * beeper_percentage
+        return self.pole_y + int(self.base_height * height_ratio)
     
     def check_victory(self, karel):
         """
-        Check if Karel has reached the goal flag.
+        Check if Karel has reached the flagpole or flag.
         """
         if self.reached:
             return False
         
         karel_rect = pygame.Rect(karel.x, karel.y, karel.width, karel.height)
-        flag_rect = pygame.Rect(self.x, self.base_y, self.width, self.height)
         
-        if karel_rect.colliderect(flag_rect):
+        # Check collision with pole
+        if karel_rect.colliderect(self.pole_rect):
             self.reached = True
-            print("🎉 LEVEL COMPLETE!")
+            print("🎉 FLAGPOLE VICTORY! Level Complete!")
             return True
         
         return False
     
     def draw(self, screen, beeper_percentage):
-        """Draw goal flag with dynamic color and height."""
-        flag_height = self.get_flag_height(beeper_percentage)
-        flag_color = self.get_flag_color(beeper_percentage)
-        flag_y = self.base_y - (flag_height - GOAL_FLAG_HEIGHT)
+        """Draw flagpole with dynamic flag position and color."""
+        # Draw pole (brown/wooden color)
+        pole_color = (139, 69, 19)  # Brown
+        pygame.draw.rect(screen, pole_color, self.pole_rect)
+        pygame.draw.rect(screen, BLACK, self.pole_rect, 2)  # Black outline
         
-        # Draw flag rectangle
-        flag_rect = pygame.Rect(self.x, flag_y, self.width, flag_height)
+        # Calculate flag properties
+        flag_color = self.get_flag_color(beeper_percentage)
+        flag_y = self.get_flag_height(beeper_percentage)
+        
+        # Draw flag (attached to right side of pole)
+        flag_x = self.pole_x + self.pole_width
+        flag_rect = pygame.Rect(flag_x, flag_y, 30, 20)  # FLAG_WIDTH, FLAG_HEIGHT
         pygame.draw.rect(screen, flag_color, flag_rect)
         pygame.draw.rect(screen, BLACK, flag_rect, 2)  # Black border
         
-        # Draw 'GOAL' text
-        try:
-            font = pygame.font.Font(None, 16)
-            goal_text = font.render('GOAL', True, WHITE)
-            text_rect = goal_text.get_rect(center=(self.x + self.width//2, flag_y + flag_height//2))
-            screen.blit(goal_text, text_rect)
-        except pygame.error:
-            pass
+        # Draw flag pattern (triangle)
+        flag_points = [
+            (flag_x, flag_y),
+            (flag_x + 30, flag_y + 10),  # FLAG_WIDTH, FLAG_HEIGHT // 2
+            (flag_x, flag_y + 20)  # FLAG_HEIGHT
+        ]
+        pygame.draw.polygon(screen, flag_color, flag_points)
+        pygame.draw.polygon(screen, BLACK, flag_points, 2)
 
 class Camera:
     """
@@ -458,9 +541,9 @@ class Karel:
             if self.velocity_y > TERMINAL_VELOCITY:
                 self.velocity_y = TERMINAL_VELOCITY
     
-    def check_platform_collision(self, platforms, walls):
+    def check_platform_collision(self, platforms, walls, staircase=None):
         """
-        Check if Karel is colliding with any platform or wall.
+        Check if Karel is colliding with any platform, wall, or staircase.
         Handles both top and bottom collisions with proper edge case handling.
         Walls act as platforms for landing but also block movement.
         Ground gaps allow Karel to fall through.
@@ -468,6 +551,19 @@ class Karel:
         karel_bottom = self.y + self.height
         karel_top = self.y
         self.on_ground = False
+        karel_rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        
+        # Check staircase collision first (priority)
+        if staircase:
+            collision, new_y, on_ground = staircase.check_collision(karel_rect, self.velocity_y)
+            if collision:
+                self.y = new_y
+                if on_ground:
+                    self.velocity_y = 0
+                    self.on_ground = True
+                else:
+                    self.velocity_y = 0
+                return
         
         # Combine platforms and walls for collision detection
         all_obstacles = list(platforms) + list(walls)
@@ -503,7 +599,7 @@ class Karel:
         # No fallback ground collision - Karel can fall through gaps!
         # This creates the Mario-style gap jumping challenge
     
-    def update(self, keys_pressed, platforms, walls):
+    def update(self, keys_pressed, platforms, walls, staircase=None):
         """Update Karel's position based on keyboard input, physics, and obstacles."""
         # Handle horizontal movement
         if keys_pressed[pygame.K_LEFT]:
@@ -521,8 +617,8 @@ class Karel:
         # Update vertical position
         self.y += self.velocity_y
         
-        # Check platform and wall collision
-        self.check_platform_collision(platforms, walls)
+        # Check platform, wall, and staircase collision
+        self.check_platform_collision(platforms, walls, staircase)
         
         # Check if Karel fell into a gap (below screen)
         if self.y > WINDOW_HEIGHT + 100:  # Give some buffer
@@ -604,8 +700,17 @@ class KarelGame:
         # Load extended level data
         self._create_level_data()
         
-        # Create goal flag at level end
-        self.goal_flag = GoalFlag()
+        # Create solid staircase 
+        self.staircase = Staircase(
+            start_x=2800,           # Start after ground platform ends
+            start_y=GROUND_LEVEL,   # Start at ground level
+            step_width=60,          # Each step 60px wide
+            step_height=32,         # Each step 32px high
+            num_steps=6             # 6 steps total
+        )
+        
+        # Create flagpole at level end (after stairs)
+        self.flagpole = Flagpole()
         
         # Adjust beeper positions to avoid all obstacle conflicts
         self._resolve_beeper_obstacle_conflicts()
@@ -670,7 +775,10 @@ class KarelGame:
             Platform(1350, GROUND_LEVEL, 250, GROUND_HEIGHT),     # Gap 3: 1200-1350 (150px gap), ground 1350-1600
             Platform(1750, GROUND_LEVEL, 200, GROUND_HEIGHT),     # Gap 4: 1600-1750 (150px gap), ground 1750-1950
             Platform(2100, GROUND_LEVEL, 300, GROUND_HEIGHT),     # Gap 5: 1950-2100 (150px gap), ground 2100-2400  
-            Platform(2600, GROUND_LEVEL, 600, GROUND_HEIGHT),     # Gap 6: 2400-2600 (200px gap), ground 2600-3200
+            Platform(2600, GROUND_LEVEL, 200, GROUND_HEIGHT),     # Gap 6: 2400-2600 (200px gap), ground 2600-2800
+            
+            # Ground platform under flagpole (after staircase at 2800+60*6=3160)
+            Platform(3160, GROUND_LEVEL, 40, GROUND_HEIGHT),          # Ground under flagpole (3160-3200)
             
             # Early section platforms (0-800px)
             Platform(200, 400, 100, 20),    # Starting area platform
@@ -691,10 +799,8 @@ class KarelGame:
             Platform(2200, 160, 120, 20),   # High platform sequence
             Platform(2400, 300, 100, 20),   # Descent platform
             
-            # Final section platforms (2400-3200px)
-            Platform(2600, 220, 100, 20),   # Final challenges
-            Platform(2800, 160, 80, 20),    # High finale
-            Platform(3000, 280, 150, 20),   # Final large platform
+            # Final section platforms (2400-2600px only - clear area for stairs/flagpole)
+            Platform(2500, 220, 80, 20),    # Final challenge platform
         ]
         
         # No walls - clean platforming focus
@@ -795,13 +901,15 @@ class KarelGame:
         Update game logic.
         Handle Karel movement, physics, wall collision, and beeper collection.
         """
-        # Get currently pressed keys for smooth movement
-        keys_pressed = pygame.key.get_pressed()
-        
-        # Update Karel's position based on input, platforms, and walls
-        if self.karel.update(keys_pressed, self.platforms, self.walls):
-            # Karel fell - trigger screen shake
-            self.screen_shake = SHAKE_DURATION
+        # Don't update Karel if game is won
+        if not self.game_won:
+            # Get currently pressed keys for smooth movement
+            keys_pressed = pygame.key.get_pressed()
+            
+            # Update Karel's position based on input, platforms, and walls
+            if self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase):
+                # Karel fell - trigger screen shake
+                self.screen_shake = SHAKE_DURATION
         
         # Update camera to follow Karel (with shake)
         self.camera.update(self.karel)
@@ -827,9 +935,9 @@ class KarelGame:
         # Update particles
         self.particles = [p for p in self.particles if p.update()]
         
-        # Check victory condition
+        # Check victory condition - jump to the flagpole!
         if not self.game_won:
-            if self.goal_flag.check_victory(self.karel):
+            if self.flagpole.check_victory(self.karel):
                 self.game_won = True
                 self.win_timer = WIN_SCREEN_DURATION
         
@@ -896,6 +1004,9 @@ class KarelGame:
                 except pygame.error:
                     pass
         
+        # Draw staircase
+        self.staircase.draw(self.screen, self.camera)
+        
         # Draw all beepers (only visible and uncollected ones) with screen shake
         for beeper in self.beepers:
             if not beeper.collected and self.camera.is_visible(beeper.x, beeper.y, BEEPER_RADIUS*2, BEEPER_RADIUS*2):
@@ -911,32 +1022,39 @@ class KarelGame:
                 except pygame.error:
                     pass
         
-        # Draw goal flag (if visible)
-        if self.camera.is_visible(self.goal_flag.x, self.goal_flag.base_y, GOAL_FLAG_WIDTH, GOAL_FLAG_HEIGHT * 1.5):
-            screen_x, screen_y = self.camera.get_screen_pos(self.goal_flag.x, self.goal_flag.base_y, self.camera_shake_x, self.camera_shake_y)
+        # Draw flagpole (if visible)
+        if self.camera.is_visible(self.flagpole.pole_x, self.flagpole.pole_y, 12 + 30, 280):  # FLAGPOLE_WIDTH + FLAG_WIDTH, FLAGPOLE_BASE_HEIGHT
+            screen_x, screen_y = self.camera.get_screen_pos(self.flagpole.pole_x, self.flagpole.pole_y, self.camera_shake_x, self.camera_shake_y)
             
             # Calculate beeper percentage
             beepers_collected = sum(1 for b in self.beepers if b.collected)
             total_beepers = len(self.beepers)
             beeper_percentage = beepers_collected / total_beepers if total_beepers > 0 else 0
             
-            # Draw goal flag with dynamic properties
-            flag_height = self.goal_flag.get_flag_height(beeper_percentage)
-            flag_color = self.goal_flag.get_flag_color(beeper_percentage)
-            flag_y = screen_y - (flag_height - GOAL_FLAG_HEIGHT)
+            # Draw pole
+            pole_color = (139, 69, 19)  # Brown
+            pole_rect = pygame.Rect(screen_x, screen_y, 12, 280)  # FLAGPOLE_WIDTH, FLAGPOLE_BASE_HEIGHT
+            pygame.draw.rect(self.screen, pole_color, pole_rect)
+            pygame.draw.rect(self.screen, BLACK, pole_rect, 2)
             
-            flag_rect = pygame.Rect(screen_x, flag_y, GOAL_FLAG_WIDTH, flag_height)
+            # Draw flag with dynamic properties
+            flag_color = self.flagpole.get_flag_color(beeper_percentage)
+            flag_height_offset = self.flagpole.get_flag_height(beeper_percentage) - self.flagpole.pole_y
+            flag_screen_y = screen_y + flag_height_offset
+            flag_screen_x = screen_x + 12  # FLAGPOLE_WIDTH
+            
+            flag_rect = pygame.Rect(flag_screen_x, flag_screen_y, 30, 20)  # FLAG_WIDTH, FLAG_HEIGHT
             pygame.draw.rect(self.screen, flag_color, flag_rect)
             pygame.draw.rect(self.screen, BLACK, flag_rect, 2)
             
-            # Draw 'GOAL' text
-            try:
-                font = pygame.font.Font(None, 16)
-                goal_text = font.render('GOAL', True, WHITE)
-                text_rect = goal_text.get_rect(center=(screen_x + GOAL_FLAG_WIDTH//2, flag_y + flag_height//2))
-                self.screen.blit(goal_text, text_rect)
-            except pygame.error:
-                pass
+            # Draw flag triangle
+            flag_points = [
+                (flag_screen_x, flag_screen_y),
+                (flag_screen_x + 30, flag_screen_y + 10),  # FLAG_WIDTH, FLAG_HEIGHT // 2
+                (flag_screen_x, flag_screen_y + 20)  # FLAG_HEIGHT
+            ]
+            pygame.draw.polygon(self.screen, flag_color, flag_points)
+            pygame.draw.polygon(self.screen, BLACK, flag_points, 2)
         
         # Draw particles
         for particle in self.particles:
@@ -984,7 +1102,7 @@ class KarelGame:
                     restart_rect = restart_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 40))
                     self.screen.blit(restart_text, restart_rect)
             else:
-                instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Reach GOAL Flag to Win!", True, BLACK)
+                instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Climb Stairs & Jump to Flagpole!", True, BLACK)
             instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
             self.screen.blit(instruction_text, instruction_rect)
             
@@ -1042,8 +1160,17 @@ class KarelGame:
         for beeper in self.beepers:
             beeper.collected = False
         
-        # Reset goal flag
-        self.goal_flag = GoalFlag()
+        # Reset staircase
+        self.staircase = Staircase(
+            start_x=2800,           
+            start_y=GROUND_LEVEL,   
+            step_width=60,          
+            step_height=32,         
+            num_steps=6             
+        )
+        
+        # Reset flagpole
+        self.flagpole = Flagpole()
     
     def cleanup(self):
         """
