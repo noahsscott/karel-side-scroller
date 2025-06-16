@@ -109,9 +109,10 @@ GOAL_MAX_COLOR = (0, 255, 0)         # Green (100% beepers)
 PARTICLE_COUNT = 5                   # Particles per beeper collection
 PARTICLE_LIFETIME = 30               # Frames particles last
 PARTICLE_SPEED = 3                   # Particle movement speed
+MAX_PARTICLES = 20                   # Maximum particles on screen (performance limit)
 
 # Screen Effects Constants
-SHAKE_DURATION = 20                  # Frames screen shakes
+SHAKE_DURATION = 3                   # 3-frame camera shake when Karel dies
 SHAKE_INTENSITY = 5                  # Shake pixel range
 WIN_SCREEN_DURATION = 180            # 3 seconds at 60fps
 
@@ -156,22 +157,58 @@ class Beeper:
     - Strategic placement on platforms
     - Collection detection with Karel
     - Score value when collected
+    - Mario-style coin bounce animation when collected
+    - Gentle bobbing animation when idle
     """
     
     def __init__(self, x, y):
         """Initialize beeper at the given position."""
         self.x = x
         self.y = y
+        self.base_y = y  # Original Y position for bobbing animation
         self.radius = BEEPER_RADIUS
         self.collected = False
         self.points = BEEPER_POINTS
+        
+        # Animation states
+        self.collecting = False
+        self.collection_timer = 0
+        self.collection_duration = 20  # Frames for coin jump animation
+        self.bob_timer = 0  # For idle bobbing animation
+        
+        # Mario coin effect properties
+        self.jump_velocity = 0
+        self.jump_gravity = 0.8
     
+    def update(self):
+        """Update beeper animation states."""
+        if self.collected:
+            return
+            
+        # Handle collection animation
+        if self.collecting:
+            self.collection_timer += 1
+            
+            # Mario coin jump effect
+            self.y += self.jump_velocity
+            self.jump_velocity += self.jump_gravity
+            
+            # Check if collection animation is complete
+            if self.collection_timer >= self.collection_duration:
+                self.collected = True
+                return
+        else:
+            # Gentle bobbing animation when idle (sin wave)
+            self.bob_timer += 1
+            bob_offset = 2 * pygame.math.Vector2(1, 0).rotate_rad(self.bob_timer * 0.1).y
+            self.y = self.base_y + bob_offset
+        
     def check_collection(self, karel):
         """
         Check if Karel is close enough to collect this beeper.
-        Returns True if collected, False otherwise.
+        Returns True if collection started, False otherwise.
         """
-        if self.collected:
+        if self.collected or self.collecting:
             return False
         
         # Calculate distance between Karel center and beeper center
@@ -181,11 +218,18 @@ class Beeper:
         distance = ((karel_center_x - self.x) ** 2 + (karel_center_y - self.y) ** 2) ** 0.5
         
         if distance < BEEPER_COLLECTION_DISTANCE:
-            self.collected = True
+            # Start collection animation
+            self.collecting = True
+            self.collection_timer = 0
+            self.jump_velocity = -8  # Initial upward velocity for jump
             print('Beep collected!')  # Sound effect placeholder
             return True
         
         return False
+    
+    def is_fully_collected(self):
+        """Check if beeper is fully collected (animation complete)."""
+        return self.collected
     
     def draw(self, screen):
         """Draw beeper as yellow circle with black 'B' text."""
@@ -237,30 +281,133 @@ class Wall:
 
 class Particle:
     """
-    Simple particle for beeper collection effects.
+    Enhanced particle system supporting multiple particle types and effects.
     """
-    def __init__(self, x, y):
+    
+    # Particle type constants
+    TYPE_BEEPER = "beeper"
+    TYPE_DUST = "dust"
+    TYPE_GLOW = "glow"
+    TYPE_COIN = "coin"
+    
+    def __init__(self, x, y, particle_type="beeper", **kwargs):
         self.x = x
         self.y = y
-        self.vel_x = (pygame.time.get_ticks() % 7 - 3) * PARTICLE_SPEED / 3
-        self.vel_y = -(pygame.time.get_ticks() % 5 + 2) * PARTICLE_SPEED / 2
+        self.particle_type = particle_type
         self.lifetime = PARTICLE_LIFETIME
         self.max_lifetime = PARTICLE_LIFETIME
+        
+        # Initialize particle properties based on type
+        if particle_type == self.TYPE_BEEPER:
+            self._init_beeper_particle(**kwargs)
+        elif particle_type == self.TYPE_DUST:
+            self._init_dust_particle(**kwargs)
+        elif particle_type == self.TYPE_GLOW:
+            self._init_glow_particle(**kwargs)
+        elif particle_type == self.TYPE_COIN:
+            self._init_coin_particle(**kwargs)
+        else:
+            self._init_beeper_particle(**kwargs)
+    
+    def _init_beeper_particle(self, **kwargs):
+        """Initialize blue beeper collection particle."""
+        import random
+        self.vel_x = random.uniform(-2, 2)
+        self.vel_y = random.uniform(-4, -1)
+        self.color = (100, 150, 255)  # Blue
+        self.size = 3
+        self.gravity = 0.2
+        self.lifetime = 30
+        self.max_lifetime = 30
+    
+    def _init_dust_particle(self, **kwargs):
+        """Initialize gray dust puff particle."""
+        import random
+        self.vel_x = random.uniform(-1.5, 1.5)
+        self.vel_y = random.uniform(-2, -0.5)
+        self.color = (128, 128, 128)  # Gray
+        self.size = random.randint(2, 4)
+        self.gravity = 0.1
+        self.lifetime = 20
+        self.max_lifetime = 20
+    
+    def _init_glow_particle(self, **kwargs):
+        """Initialize golden glow particle."""
+        import random
+        angle = random.uniform(0, 6.28)  # 2*pi
+        speed = random.uniform(0.5, 1.5)
+        self.vel_x = speed * pygame.math.Vector2(1, 0).rotate_rad(angle).x
+        self.vel_y = speed * pygame.math.Vector2(1, 0).rotate_rad(angle).y
+        self.color = (255, 215, 0)  # Gold
+        self.size = random.randint(1, 3)
+        self.gravity = 0
+        self.lifetime = 40
+        self.max_lifetime = 40
+    
+    def _init_coin_particle(self, **kwargs):
+        """Initialize yellow coin bounce particle."""
+        import random
+        self.vel_x = random.uniform(-1, 1)
+        self.vel_y = random.uniform(-6, -3)
+        self.color = (255, 255, 0)  # Yellow
+        self.size = 4
+        self.gravity = 0.3
+        self.lifetime = 35
+        self.max_lifetime = 35
     
     def update(self):
+        """Update particle position and properties."""
         self.x += self.vel_x
         self.y += self.vel_y
-        self.vel_y += 0.2  # Gravity
+        
+        # Apply gravity if particle type uses it
+        if hasattr(self, 'gravity'):
+            self.vel_y += self.gravity
+        
+        # Special behaviors for specific particle types
+        if self.particle_type == self.TYPE_GLOW:
+            # Glow particles slowly expand and contract
+            phase = (self.max_lifetime - self.lifetime) / self.max_lifetime
+            self.size = max(1, int(3 * (1 + 0.5 * pygame.math.Vector2(1, 0).rotate_rad(phase * 12.56).y)))
+        
         self.lifetime -= 1
         return self.lifetime > 0
     
     def draw(self, screen, camera):
-        if self.lifetime > 0:
-            screen_x, screen_y = camera.get_screen_pos(self.x, self.y)
-            alpha = self.lifetime / self.max_lifetime
-            color = (100, 150, 255)  # Blue particles
-            size = max(1, int(3 * alpha))
-            pygame.draw.circle(screen, color, (int(screen_x), int(screen_y)), size)
+        """Draw particle with alpha blending based on lifetime."""
+        if self.lifetime <= 0:
+            return
+            
+        screen_x, screen_y = camera.get_screen_pos(self.x, self.y)
+        
+        # Calculate alpha for fade effect
+        alpha = self.lifetime / self.max_lifetime
+        
+        # Adjust color based on alpha for fade effect
+        r, g, b = self.color
+        fade_color = (
+            max(0, min(255, int(r * alpha))),
+            max(0, min(255, int(g * alpha))),  
+            max(0, min(255, int(b * alpha)))
+        )
+        
+        # Draw particle based on type
+        if self.particle_type == self.TYPE_GLOW:
+            # Draw glow particle with multiple layers for glow effect
+            for i in range(3):
+                layer_size = max(1, self.size - i)
+                layer_alpha = alpha * (0.8 - i * 0.2)
+                layer_color = (
+                    max(0, min(255, int(r * layer_alpha))),
+                    max(0, min(255, int(g * layer_alpha))),
+                    max(0, min(255, int(b * layer_alpha)))
+                )
+                if layer_size > 0:
+                    pygame.draw.circle(screen, layer_color, (int(screen_x), int(screen_y)), layer_size)
+        else:
+            # Standard particle drawing
+            size = max(1, int(self.size * alpha))
+            pygame.draw.circle(screen, fade_color, (int(screen_x), int(screen_y)), size)
 
 class Hazard:
     """
@@ -360,6 +507,9 @@ class Flagpole:
         # Calculate pole position (extends from ground up)
         self.pole_y = GROUND_LEVEL - self.base_height
         self.pole_rect = pygame.Rect(self.pole_x, self.pole_y, self.pole_width, self.base_height)
+        
+        # Glow effect properties
+        self.glow_timer = 0
     
     def get_flag_color(self, beeper_percentage):
         """
@@ -410,6 +560,31 @@ class Flagpole:
             return True
         
         return False
+    
+    def update(self):
+        """Update flagpole glow animation."""
+        self.glow_timer += 1
+    
+    def should_generate_glow(self):
+        """Check if glow particles should be generated this frame."""
+        return self.glow_timer % 8 == 0  # Generate glow particles every 8 frames
+    
+    def get_glow_positions(self):
+        """Get positions around the flagpole for glow particles."""
+        glow_positions = []
+        center_x = self.pole_x + self.pole_width // 2
+        center_y = self.pole_y + self.base_height // 2
+        
+        # Generate positions in a circle around the flagpole
+        import random
+        for _ in range(2):  # 2 glow particles per generation
+            angle = random.uniform(0, 6.28)  # 2*pi
+            radius = random.uniform(25, 45)
+            glow_x = center_x + radius * pygame.math.Vector2(1, 0).rotate_rad(angle).x
+            glow_y = center_y + radius * pygame.math.Vector2(1, 0).rotate_rad(angle).y
+            glow_positions.append((glow_x, glow_y))
+        
+        return glow_positions
     
     def draw(self, screen, beeper_percentage):
         """Draw flagpole with dynamic flag position and color."""
@@ -516,6 +691,7 @@ class Karel:
         self.facing_right = True
         self.walking = False
         self.walk_timer = 0
+        self.idle_timer = 0
         
         # Create rectangle for collision detection
         self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
@@ -600,11 +776,14 @@ class Karel:
         Handles both top and bottom collisions with proper edge case handling.
         Walls act as platforms for landing but also block movement.
         Ground gaps allow Karel to fall through.
+        Returns True if Karel just landed (for dust effects).
         """
         karel_bottom = self.y + self.height
         karel_top = self.y
+        was_on_ground = self.on_ground
         self.on_ground = False
         karel_rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        landed = False
         
         # Combine platforms, walls, and staircase platforms for collision detection
         all_obstacles = list(platforms) + list(walls)
@@ -627,6 +806,10 @@ class Karel:
                     self.y = obstacle.y - self.height
                     self.velocity_y = 0
                     self.on_ground = True
+                    
+                    # Check if Karel just landed (for dust effects)
+                    if not was_on_ground and self.velocity_y >= 3:  # Only create dust for significant falls
+                        landed = True
                     break
                 
                 # Hitting obstacle from below (jumping up)
@@ -641,9 +824,11 @@ class Karel:
         
         # No fallback ground collision - Karel can fall through gaps!
         # This creates the Mario-style gap jumping challenge
+        return landed
     
     def update(self, keys_pressed, platforms, walls, staircase=None):
-        """Update Karel's position based on keyboard input, physics, and obstacles."""
+        """Update Karel's position based on keyboard input, physics, and obstacles.
+        Returns tuple: (death, landed) for game state updates."""
         # Reset walking state
         self.walking = False
         
@@ -660,8 +845,10 @@ class Karel:
         # Update walk animation timer
         if self.walking:
             self.walk_timer += 1
+            self.idle_timer = 0  # Reset idle timer when walking
         else:
             self.walk_timer = 0
+            self.idle_timer += 1  # Increment idle timer when not walking
         
         # Handle jumping with error checking
         try:
@@ -677,7 +864,7 @@ class Karel:
         self.y += self.velocity_y
         
         # Check platform, wall, and staircase collision
-        self.check_platform_collision(platforms, walls, staircase)
+        landed = self.check_platform_collision(platforms, walls, staircase)
         
         # Update collision rectangle (moved before death check)
         self.rect.x = self.x
@@ -685,9 +872,9 @@ class Karel:
         
         # Check if Karel fell into a gap (below screen)
         if self.y > DEATH_THRESHOLD:
-            return True  # Signal death
+            return True, False  # Signal death, no landing
         
-        return False
+        return False, landed
     
     def draw(self, screen):
         """Draw Karel as a blue rectangle with white 'K' label."""
@@ -749,6 +936,14 @@ class KarelGame:
         self.invincibility_timer = 0
         self.respawn_timer = 0
         self.respawning = False
+        
+        # Death effect system
+        self.death_flash = False
+        self.death_flash_timer = 0
+        self.death_flash_duration = 10  # Red flash for 10 frames
+        self.karel_white = False
+        self.karel_white_timer = 0
+        self.karel_white_duration = 30  # Karel white for 30 frames
         
         # Initialize pygame with error handling
         if not self._initialize_pygame():
@@ -1024,10 +1219,24 @@ class KarelGame:
             
             # Update Karel's position based on input, platforms, and walls
             try:
-                if self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase):
-                    # Karel fell - trigger death
+                karel_died, karel_landed = self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase)
+                
+                # Check if Karel died
+                if karel_died:
                     self._karel_died()
                     return
+                
+                # Create dust particles if Karel just landed
+                if karel_landed:
+                    try:
+                        # Create dust puff at Karel's feet
+                        dust_x = self.karel.x + self.karel.width // 2
+                        dust_y = self.karel.y + self.karel.height
+                        for _ in range(4):  # Create 4 dust particles
+                            self.particles.append(Particle(dust_x, dust_y, Particle.TYPE_DUST))
+                    except Exception as e:
+                        print(f"WARNING: Dust particle creation error - {e}")
+                        
             except Exception as e:
                 print(f"WARNING: Karel update error - {e}")
                 return
@@ -1062,22 +1271,61 @@ class KarelGame:
             self.camera_shake_x = 0
             self.camera_shake_y = 0
         
-        # Check beeper collection with particle effects and error handling
+        # Update death effects
+        if self.death_flash_timer > 0:
+            self.death_flash_timer -= 1
+            if self.death_flash_timer <= 0:
+                self.death_flash = False
+        
+        if self.karel_white_timer > 0:
+            self.karel_white_timer -= 1
+            if self.karel_white_timer <= 0:
+                self.karel_white = False
+        
+        # Update beeper animations and check collection with particle effects
         try:
             for beeper in self.beepers:
+                # Update beeper animation (bobbing and collection jump)
+                beeper.update()
+                
+                # Check if collection animation just started
                 if beeper.check_collection(self.karel):
-                    self.score += beeper.points
-                    # Create particles with error handling
+                    # Create coin particles when collection starts
                     try:
                         for _ in range(PARTICLE_COUNT):
-                            self.particles.append(Particle(beeper.x, beeper.y))
+                            self.particles.append(Particle(beeper.x, beeper.y, Particle.TYPE_COIN))
                     except Exception as e:
                         print(f"WARNING: Particle creation error - {e}")
+                
+                # Award points when beeper is fully collected (animation complete)
+                if beeper.is_fully_collected() and beeper.points > 0:
+                    self.score += beeper.points
+                    beeper.points = 0  # Prevent double scoring
+                    
         except Exception as e:
             print(f"WARNING: Beeper collection error - {e}")
         
-        # Update particles
+        # Update particles with performance optimization
         self.particles = [p for p in self.particles if p.update()]
+        
+        # Limit particles to maximum for performance
+        if len(self.particles) > MAX_PARTICLES:
+            # Remove oldest particles (keep newest particles up to limit)
+            self.particles = self.particles[-MAX_PARTICLES:]
+        
+        # Update flagpole and generate glow particles
+        if hasattr(self, 'flagpole'):
+            try:
+                self.flagpole.update()
+                
+                # Generate glow particles around the flagpole
+                if self.flagpole.should_generate_glow():
+                    glow_positions = self.flagpole.get_glow_positions()
+                    for glow_x, glow_y in glow_positions:
+                        self.particles.append(Particle(glow_x, glow_y, Particle.TYPE_GLOW))
+                        
+            except Exception as e:
+                print(f"WARNING: Flagpole glow effect error - {e}")
         
         # Check victory condition - jump to the flagpole!
         if not self.game_won and hasattr(self, 'flagpole'):
@@ -1094,9 +1342,15 @@ class KarelGame:
             self.win_timer -= 1
     
     def _karel_died(self):
-        """Handle Karel's death - reduce lives and start respawn."""
+        """Handle Karel's death - reduce lives and start respawn with visual effects."""
         self.lives -= 1
         self.screen_shake = SHAKE_DURATION
+        
+        # Trigger death effects
+        self.death_flash = True
+        self.death_flash_timer = self.death_flash_duration
+        self.karel_white = True
+        self.karel_white_timer = self.karel_white_duration
         
         if self.lives <= 0:
             # Game over
@@ -1247,21 +1501,24 @@ class KarelGame:
             pygame.draw.rect(self.screen, pole_color, pole_rect)
             pygame.draw.rect(self.screen, BLACK, pole_rect, 2)
             
-            # Draw flag with dynamic properties
+            # Draw flag with dynamic properties and gentle wave motion
             flag_color = self.flagpole.get_flag_color(beeper_percentage)
             flag_height_offset = self.flagpole.get_flag_height(beeper_percentage) - self.flagpole.pole_y
             flag_screen_y = screen_y + flag_height_offset
             flag_screen_x = screen_x + 12  # FLAGPOLE_WIDTH
             
-            flag_rect = pygame.Rect(flag_screen_x, flag_screen_y, 30, 20)  # FLAG_WIDTH, FLAG_HEIGHT
+            # Add gentle wave motion to flag
+            wave_offset = 2 * pygame.math.Vector2(1, 0).rotate_rad(self.flagpole.glow_timer * 0.15).y
+            
+            flag_rect = pygame.Rect(flag_screen_x + wave_offset, flag_screen_y, 30, 20)  # FLAG_WIDTH, FLAG_HEIGHT
             pygame.draw.rect(self.screen, flag_color, flag_rect)
             pygame.draw.rect(self.screen, BLACK, flag_rect, 2)
             
-            # Draw flag triangle
+            # Draw flag triangle with wave motion
             flag_points = [
-                (flag_screen_x, flag_screen_y),
-                (flag_screen_x + 30, flag_screen_y + 10),  # FLAG_WIDTH, FLAG_HEIGHT // 2
-                (flag_screen_x, flag_screen_y + 20)  # FLAG_HEIGHT
+                (flag_screen_x + wave_offset, flag_screen_y),
+                (flag_screen_x + 30 + wave_offset, flag_screen_y + 10),  # FLAG_WIDTH, FLAG_HEIGHT // 2
+                (flag_screen_x + wave_offset, flag_screen_y + 20)  # FLAG_HEIGHT
             ]
             pygame.draw.polygon(self.screen, flag_color, flag_points)
             pygame.draw.polygon(self.screen, BLACK, flag_points, 2)
@@ -1273,12 +1530,22 @@ class KarelGame:
         # Draw Karel character with screen shake and animation
         screen_x, screen_y = self.camera.get_screen_pos(self.karel.x, self.karel.y, self.camera_shake_x, self.camera_shake_y)
         
-        # Add walking bob animation (simple up/down movement)
+        # Add walking bob animation (alternating between 2 frames)
         bob_offset = 0
         if self.karel.walking:
-            # Create faster bobbing effect every 5 frames for cute little steps
-            bob_cycle = (self.karel.walk_timer // 5) % 2
-            bob_offset = -2 if bob_cycle == 0 else 2
+            # Create alternating 2-frame walking animation every 6 frames
+            walk_frame = (self.karel.walk_timer // 6) % 2
+            if walk_frame == 0:
+                bob_offset = -3  # Frame 1: Karel lifted up slightly
+            else:
+                bob_offset = 1   # Frame 2: Karel lowered slightly (step down)
+        elif self.karel.on_ground:
+            # Idle bounce animation every 12 frames
+            idle_cycle = self.karel.idle_timer % 12
+            if idle_cycle == 0:
+                bob_offset = -1  # Subtle bounce up
+            elif idle_cycle == 1:
+                bob_offset = 0   # Return to normal
         
         final_y = screen_y + bob_offset
         
@@ -1289,16 +1556,26 @@ class KarelGame:
             if not self.karel.facing_right:
                 karel_surface = pygame.transform.flip(self.karel_image, True, False)
             
+            # Apply white effect if Karel is in death state
+            if self.karel_white:
+                # Create white version of Karel sprite
+                karel_surface = karel_surface.copy()
+                karel_surface.fill((255, 255, 255), special_flags=pygame.BLEND_MULT)
+            
             self.screen.blit(karel_surface, (screen_x, final_y))
         else:
             # Fallback to blue rectangle with 'K'
             screen_rect = pygame.Rect(screen_x, final_y, self.karel.width, self.karel.height)
-            pygame.draw.rect(self.screen, KAREL_BLUE, screen_rect)
+            
+            # Use white color if Karel is in death state
+            karel_color = WHITE if self.karel_white else KAREL_BLUE
+            pygame.draw.rect(self.screen, karel_color, screen_rect)
             
             # Draw Karel's 'K' text
             try:
                 font = pygame.font.Font(None, 36)  # Bigger font for bigger Karel
-                k_text = font.render('K', True, WHITE)
+                text_color = BLACK if self.karel_white else WHITE
+                k_text = font.render('K', True, text_color)
                 text_rect = k_text.get_rect(center=(screen_x + self.karel.width//2, final_y + self.karel.height//2))
                 self.screen.blit(k_text, text_rect)
             except pygame.error:
@@ -1366,6 +1643,13 @@ class KarelGame:
         except pygame.error as e:
             print(f"WARNING: Text rendering error - {e}")
         
+        # Draw death flash overlay (red screen flash)
+        if self.death_flash:
+            flash_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+            flash_surface.set_alpha(128)  # Semi-transparent
+            flash_surface.fill((255, 0, 0))  # Red color
+            self.screen.blit(flash_surface, (0, 0))
+        
         # Update display
         pygame.display.flip()
     
@@ -1414,6 +1698,12 @@ class KarelGame:
         self.invincibility_timer = 0
         self.respawn_timer = 0
         self.respawning = False
+        
+        # Reset death effects
+        self.death_flash = False
+        self.death_flash_timer = 0
+        self.karel_white = False
+        self.karel_white_timer = 0
         
         # Reset Karel
         self.karel = Karel(KAREL_START_X, KAREL_START_Y)
