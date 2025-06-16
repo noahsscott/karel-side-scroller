@@ -46,6 +46,7 @@ Karel, the beloved Stanford CS robot, embarks on a coding adventure through vari
 
 import pygame
 import sys
+import os
 
 # ============================================================================
 # GAME CONFIGURATION AND CONSTANTS
@@ -125,6 +126,168 @@ DEATH_THRESHOLD = WINDOW_HEIGHT + 50 # Y position that triggers death
 # Hazard System Constants
 HAZARD_SIZE = 20                     # Spike hazard size
 HAZARD_COLOR = (200, 0, 0)           # Red color for spikes
+
+# ============================================================================
+# SOUND SYSTEM
+# ============================================================================
+
+class SoundManager:
+    """
+    Sound manager with graceful fallback support for CIP editor compatibility.
+    
+    Features:
+    - Loads .wav files from assets/ folder when available
+    - Falls back to console output when audio files are missing
+    - Volume controls and mute functionality
+    - No crashes from missing audio files or pygame.mixer issues
+    """
+    
+    def __init__(self):
+        """Initialize sound manager with fallback support."""
+        self.sounds = {}
+        self.muted = False
+        self.volume = 0.7
+        self.mixer_available = False
+        self.assets_folder = "assets"
+        
+        # Try to initialize pygame mixer
+        self._init_mixer()
+        
+        # Define expected sound files
+        self.sound_files = {
+            'jump': 'jump.wav',
+            'beep': 'beep.wav', 
+            'death': 'death.wav',
+            'victory': 'victory.wav',
+            'bg_music': 'bg_music.wav'
+        }
+        
+        # Load all available sounds
+        self._load_sounds()
+    
+    def _init_mixer(self):
+        """Initialize pygame mixer with error handling."""
+        try:
+            pygame.mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=512)
+            pygame.mixer.init()
+            self.mixer_available = True
+            print("🔊 Audio system initialized successfully")
+        except (pygame.error, Exception) as e:
+            self.mixer_available = False
+            print(f"🔇 Audio system unavailable: {e}")
+            print("🔇 Using console output fallback for sound effects")
+    
+    def _load_sounds(self):
+        """Load all sound files with fallback support."""
+        if not self.mixer_available:
+            print("🔇 No audio mixer - sound effects will use console output")
+            return
+        
+        # Check if assets folder exists
+        if not os.path.exists(self.assets_folder):
+            print(f"📁 Assets folder '{self.assets_folder}' not found - using console fallback")
+            return
+        
+        # Try to load each sound file
+        for sound_name, filename in self.sound_files.items():
+            filepath = os.path.join(self.assets_folder, filename)
+            try:
+                if os.path.exists(filepath):
+                    sound = pygame.mixer.Sound(filepath)
+                    sound.set_volume(self.volume)
+                    self.sounds[sound_name] = sound
+                    print(f"🔊 Loaded sound: {filename}")
+                else:
+                    print(f"🔇 Sound file not found: {filepath} (using console fallback)")
+            except (pygame.error, Exception) as e:
+                print(f"🔇 Failed to load {filename}: {e} (using console fallback)")
+    
+    def play_sound(self, sound_name, fallback_message=None):
+        """
+        Play a sound with fallback to console output.
+        
+        Args:
+            sound_name: Name of the sound to play
+            fallback_message: Message to print if sound unavailable
+        """
+        if self.muted:
+            return
+        
+        # Try to play actual sound
+        if self.mixer_available and sound_name in self.sounds:
+            try:
+                self.sounds[sound_name].play()
+                return
+            except (pygame.error, Exception) as e:
+                print(f"🔇 Sound playback error: {e}")
+        
+        # Fallback to console output
+        if fallback_message:
+            print(fallback_message)
+        else:
+            # Default fallback messages
+            fallback_messages = {
+                'jump': '*Jump sound*',
+                'beep': '*Beep collected*',
+                'death': '*Death sound*',
+                'victory': '*Victory fanfare*',
+                'bg_music': '*Background music*'
+            }
+            if sound_name in fallback_messages:
+                print(fallback_messages[sound_name])
+            else:
+                print(f'*{sound_name} sound*')
+    
+    def play_background_music(self):
+        """Play background music if available."""
+        if self.muted or not self.mixer_available:
+            return
+        
+        if 'bg_music' in self.sounds:
+            try:
+                pygame.mixer.music.load(os.path.join(self.assets_folder, self.sound_files['bg_music']))
+                pygame.mixer.music.set_volume(self.volume * 0.6)  # Quieter background music
+                pygame.mixer.music.play(-1)  # Loop indefinitely
+                print("🎵 Background music started")
+            except (pygame.error, Exception) as e:
+                print(f"🔇 Background music error: {e}")
+    
+    def stop_background_music(self):
+        """Stop background music."""
+        if self.mixer_available:
+            try:
+                pygame.mixer.music.stop()
+            except (pygame.error, Exception):
+                pass
+    
+    def toggle_mute(self):
+        """Toggle mute state."""
+        self.muted = not self.muted
+        if self.muted:
+            self.stop_background_music()
+            print("🔇 Audio muted")
+        else:
+            self.play_background_music()
+            print("🔊 Audio unmuted")
+        return self.muted
+    
+    def set_volume(self, volume):
+        """Set volume for all sounds (0.0 to 1.0)."""
+        self.volume = max(0.0, min(1.0, volume))
+        
+        # Update volume for all loaded sounds
+        for sound in self.sounds.values():
+            try:
+                sound.set_volume(self.volume)
+            except (pygame.error, Exception):
+                pass
+        
+        # Update music volume
+        if self.mixer_available:
+            try:
+                pygame.mixer.music.set_volume(self.volume * 0.6)
+            except (pygame.error, Exception):
+                pass
 
 # ============================================================================
 # GAME OBJECT CLASSES
@@ -222,7 +385,6 @@ class Beeper:
             self.collecting = True
             self.collection_timer = 0
             self.jump_velocity = -8  # Initial upward velocity for jump
-            print('Beep collected!')  # Sound effect placeholder
             return True
         
         return False
@@ -759,6 +921,8 @@ class Karel:
         if self.on_ground:
             self.velocity_y = JUMP_VELOCITY
             self.on_ground = False
+            return True  # Signal that jump occurred for sound
+        return False
     
     def apply_gravity(self):
         """Apply gravity physics to Karel."""
@@ -828,7 +992,7 @@ class Karel:
     
     def update(self, keys_pressed, platforms, walls, staircase=None):
         """Update Karel's position based on keyboard input, physics, and obstacles.
-        Returns tuple: (death, landed) for game state updates."""
+        Returns tuple: (death, landed, jumped) for game state updates."""
         # Reset walking state
         self.walking = False
         
@@ -851,9 +1015,10 @@ class Karel:
             self.idle_timer += 1  # Increment idle timer when not walking
         
         # Handle jumping with error checking
+        jumped = False
         try:
             if keys_pressed[pygame.K_SPACE]:
-                self.jump()
+                jumped = self.jump()
         except (IndexError, TypeError):
             pass
         
@@ -872,9 +1037,9 @@ class Karel:
         
         # Check if Karel fell into a gap (below screen)
         if self.y > DEATH_THRESHOLD:
-            return True, False  # Signal death, no landing
+            return True, False, False  # Signal death, no landing, no jump
         
-        return False, landed
+        return False, landed, jumped
     
     def draw(self, screen):
         """Draw Karel as a blue rectangle with white 'K' label."""
@@ -945,6 +1110,9 @@ class KarelGame:
         self.karel_white_timer = 0
         self.karel_white_duration = 30  # Karel white for 30 frames
         
+        # Sound system
+        self.sound_manager = SoundManager()
+        
         # Initialize pygame with error handling
         if not self._initialize_pygame():
             sys.exit(1)
@@ -960,6 +1128,9 @@ class KarelGame:
         
         # Create Karel character
         self.karel = Karel(KAREL_START_X, KAREL_START_Y)
+        
+        # Start background music
+        self.sound_manager.play_background_music()
         
         # Load extended level data
         self._create_level_data()
@@ -1187,7 +1358,7 @@ class KarelGame:
             if event.type == pygame.QUIT:
                 self.running = False
             
-            # Handle ESC key to quit and R key to restart
+            # Handle ESC key to quit, R key to restart, and M key to mute
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
@@ -1195,6 +1366,11 @@ class KarelGame:
                     if (self.game_won and self.win_timer <= 60) or self.game_over:
                         # Restart game
                         self.restart_game()
+                elif event.key == pygame.K_m:
+                    # Toggle mute
+                    muted = self.sound_manager.toggle_mute()
+                    mute_status = "ON" if muted else "OFF"
+                    print(f"🔇 Mute: {mute_status}")
     
     def update(self):
         """
@@ -1219,7 +1395,11 @@ class KarelGame:
             
             # Update Karel's position based on input, platforms, and walls
             try:
-                karel_died, karel_landed = self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase)
+                karel_died, karel_landed, karel_jumped = self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase)
+                
+                # Play jump sound
+                if karel_jumped:
+                    self.sound_manager.play_sound('jump')
                 
                 # Check if Karel died
                 if karel_died:
@@ -1290,6 +1470,9 @@ class KarelGame:
                 
                 # Check if collection animation just started
                 if beeper.check_collection(self.karel):
+                    # Play beeper collection sound
+                    self.sound_manager.play_sound('beep')
+                    
                     # Create coin particles when collection starts
                     try:
                         for _ in range(PARTICLE_COUNT):
@@ -1325,6 +1508,9 @@ class KarelGame:
         if not self.game_won and hasattr(self, 'flagpole'):
             try:
                 if self.flagpole.check_victory(self.karel):
+                    # Play victory sound
+                    self.sound_manager.play_sound('victory')
+                    
                     self.game_won = True
                     self.win_timer = WIN_SCREEN_DURATION
                     print(f"🎉 VICTORY! Final Score: {self.score}")
@@ -1339,6 +1525,9 @@ class KarelGame:
         """Handle Karel's death - reduce lives and start respawn with visual effects."""
         self.lives -= 1
         self.screen_shake = SHAKE_DURATION
+        
+        # Play death sound
+        self.sound_manager.play_sound('death')
         
         # Trigger death effects
         self.death_flash = True
@@ -1624,7 +1813,7 @@ class KarelGame:
                 instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
                 self.screen.blit(instruction_text, instruction_rect)
             else:
-                instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, Avoid Spikes, Reach Flagpole!", True, BLACK)
+                instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, M: Mute, Avoid Spikes, Reach Flagpole!", True, BLACK)
                 instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
                 self.screen.blit(instruction_text, instruction_rect)
             
