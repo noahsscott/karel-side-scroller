@@ -1277,7 +1277,7 @@ class KarelGame:
             # Advanced section - higher difficulty
             Beeper(1750, 240 - 25),                  # Precision platform
             Beeper(2100, 160 - 25),                  # High skill platform
-            Beeper(2950, GROUND_LEVEL - 25),         # Pre-victory reward
+            Beeper(3200, GROUND_LEVEL - 25),         # Pre-victory reward (after staircase)
         ]
     
     def _create_hazards(self):
@@ -1293,7 +1293,7 @@ class KarelGame:
     
     def _check_beeper_obstacle_collision(self, beeper_x, beeper_y):
         """
-        Check if a beeper position conflicts with any wall or platform.
+        Check if a beeper position conflicts with any wall, platform, or staircase.
         Returns True if there's a collision, False otherwise.
         """
         # Create temporary beeper area (using collection distance as buffer)
@@ -1316,6 +1316,14 @@ class KarelGame:
                 beeper_y >= platform.y and beeper_y <= platform.y + platform.height):
                 return True
         
+        # Check collision with staircase platforms
+        if hasattr(self, 'staircase') and self.staircase:
+            for stair_platform in self.staircase.get_platforms():
+                # Check if beeper center is inside staircase platform
+                if (beeper_x >= stair_platform.x and beeper_x <= stair_platform.x + stair_platform.width and
+                    beeper_y >= stair_platform.y and beeper_y <= stair_platform.y + stair_platform.height):
+                    return True
+        
         return False
     
     def _resolve_beeper_obstacle_conflicts(self):
@@ -1334,10 +1342,12 @@ class KarelGame:
                 # Try moving left or right in small increments
                 for offset in [-40, 40, -60, 60, -80, 80]:
                     new_x = original_x + offset
-                    # Make sure it's still on screen and not conflicting
-                    if (0 <= new_x <= WINDOW_WIDTH and 
+                    # Make sure it's still within world bounds and not conflicting
+                    if (0 <= new_x <= WORLD_WIDTH and 
                         not self._check_beeper_obstacle_collision(new_x, beeper.y)):
                         beeper.x = new_x
+                        beeper.base_y = beeper.y  # Update base position for bobbing
+                        print(f"🔧 Moved beeper from ({original_x}, {original_y}) to ({beeper.x}, {beeper.y})")
                         break
                 else:
                     # If horizontal movement doesn't work, try vertical adjustment
@@ -1346,7 +1356,12 @@ class KarelGame:
                         if (new_y > 0 and new_y < WINDOW_HEIGHT and
                             not self._check_beeper_obstacle_collision(beeper.x, new_y)):
                             beeper.y = new_y
+                            beeper.base_y = beeper.y  # Update base position for bobbing
+                            print(f"🔧 Moved beeper from ({original_x}, {original_y}) to ({beeper.x}, {beeper.y})")
                             break
+        
+        if conflicts_resolved > 0:
+            print(f"🔧 Resolved {conflicts_resolved} beeper collision conflicts")
     
     def handle_events(self):
         """
@@ -1888,9 +1903,15 @@ class KarelGame:
         # Reset camera
         self.camera = Camera()
         
-        # Reset beepers
+        # Reset beepers completely
         for beeper in self.beepers:
             beeper.collected = False
+            beeper.collecting = False
+            beeper.collection_timer = 0
+            beeper.bob_timer = 0
+            beeper.jump_velocity = 0
+            beeper.y = beeper.base_y  # Reset to original position
+            beeper.points = BEEPER_POINTS  # Reset points for scoring
         
         # Reset staircase
         self.staircase = Staircase(
