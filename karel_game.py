@@ -59,7 +59,7 @@ FPS = 60
 GAME_TITLE = "Karel's Code Quest"
 
 # World Settings (Side-Scroller)
-WORLD_WIDTH = 3200               # Total world width (Mario-style level)
+WORLD_WIDTH = 3300               # Total world width (extended for full flag visibility)
 WORLD_HEIGHT = WINDOW_HEIGHT     # Keep same height
 
 # Karel Character Settings
@@ -1062,7 +1062,7 @@ class KarelGame:
             Platform(2600, GROUND_LEVEL, 200, GROUND_HEIGHT),     # Gap 6: 2400-2600 (200px gap), ground 2600-2800
             
             # Ground platform under flagpole (after staircase at 2800+60*6=3160)
-            Platform(3160, GROUND_LEVEL, 40, GROUND_HEIGHT),          # Ground under flagpole (3160-3200)
+            Platform(3160, GROUND_LEVEL, 140, GROUND_HEIGHT),         # Extended ground under flagpole (3160-3300)
             
             # Early section platforms (0-800px)
             Platform(200, 400, 100, 20),    # Starting area platform
@@ -1313,19 +1313,13 @@ class KarelGame:
             # Remove oldest particles (keep newest particles up to limit)
             self.particles = self.particles[-MAX_PARTICLES:]
         
-        # Update flagpole and generate glow particles
+        # Update flagpole (glow particles disabled as they were too much)
         if hasattr(self, 'flagpole'):
             try:
                 self.flagpole.update()
-                
-                # Generate glow particles around the flagpole
-                if self.flagpole.should_generate_glow():
-                    glow_positions = self.flagpole.get_glow_positions()
-                    for glow_x, glow_y in glow_positions:
-                        self.particles.append(Particle(glow_x, glow_y, Particle.TYPE_GLOW))
-                        
+                # Glow particles removed - they were too distracting
             except Exception as e:
-                print(f"WARNING: Flagpole glow effect error - {e}")
+                print(f"WARNING: Flagpole update error - {e}")
         
         # Check victory condition - jump to the flagpole!
         if not self.game_won and hasattr(self, 'flagpole'):
@@ -1539,13 +1533,7 @@ class KarelGame:
                 bob_offset = -3  # Frame 1: Karel lifted up slightly
             else:
                 bob_offset = 1   # Frame 2: Karel lowered slightly (step down)
-        elif self.karel.on_ground:
-            # Idle bounce animation every 12 frames
-            idle_cycle = self.karel.idle_timer % 12
-            if idle_cycle == 0:
-                bob_offset = -1  # Subtle bounce up
-            elif idle_cycle == 1:
-                bob_offset = 0   # Return to normal
+        # No idle animation - removed as it looked odd
         
         final_y = screen_y + bob_offset
         
