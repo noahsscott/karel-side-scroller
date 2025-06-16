@@ -1,28 +1,47 @@
 """
 Karel's Code Quest - A Side-Scrolling Platformer Game
-Stanford CIP Final Project
+Stanford CIP Final Project - Complete Day 2 Implementation
 
 This is a single-file pygame implementation designed to run in the CIP browser environment.
 Karel, the beloved Stanford CS robot, embarks on a coding adventure through various levels.
 
-DAY 1 FEATURES:
-- 640x480 game window with authentic Karel world aesthetic
-- Karel character with smooth left/right movement and jumping
-- Realistic physics system with gravity and collision detection  
-- Multi-platform level with 4 different height platforms
-- Karel-style grid background with plus signs
-- Optional background image support
-- Stable 60fps performance
+🎮 COMPLETE GAME FEATURES:
+- 640x480 game window with authentic Karel world aesthetic  
+- 60x60 Karel character with walking animation and directional sprites
+- Comprehensive physics system with gravity, jumping, and collision detection
+- Mario-style side-scrolling camera with forward bias
+- Extended 3200px world with strategic platform placement
+- Lives system (3 lives) with heart display and respawn mechanics
+- Red spike hazards for challenge and consequence
+- Beeper collection system with particle effects
+- Solid staircase leading to victory flagpole
+- Game over and victory states with restart functionality
+- Clean UI with score, lives, and contextual messages
+- 70px spaced grid background with 2px thick crosses
+- Karel PNG image support with 60x60 scaling
 
-CONTROLS:
-- Left/Right Arrow Keys: Move Karel horizontally
+🕹️ CONTROLS:
+- Left/Right Arrow Keys: Move Karel horizontally (with walking animation)
 - Spacebar: Jump (only when on ground)
+- R: Restart game (when game over or victory)
 - ESC: Quit game
 
-ARCHITECTURE:
-- Karel class: Player character with physics and rendering
-- Platform class: Reusable collision surfaces  
-- KarelGame class: Main game loop and system management
+🏗️ ARCHITECTURE:
+- Karel class: Animated player character with physics and state management
+- Platform class: Reusable collision surfaces for level design
+- Hazard class: Red spike obstacles that trigger death/respawn
+- Staircase class: Solid step-by-step platforms for level progression
+- Flagpole class: Dynamic victory goal with color-changing flag
+- Camera class: Mario-style side-scrolling view management
+- KarelGame class: Complete game loop with lives, scoring, and state management
+
+🎯 GAMEPLAY:
+- Collect beepers for points (optional)
+- Avoid red spike hazards that cost lives
+- Navigate gaps, platforms, and obstacles
+- Climb stairs to reach the victory flagpole
+- 3 lives with smart respawn system
+- Completion time target: 30-60 seconds for skilled players
 """
 
 import pygame
@@ -30,6 +49,7 @@ import sys
 
 # ============================================================================
 # GAME CONFIGURATION AND CONSTANTS
+# Complete Day 2 Implementation - All Features Integrated
 # ============================================================================
 
 # Window and Performance Settings
@@ -627,11 +647,15 @@ class Karel:
         # Reset walking state
         self.walking = False
         
-        # Handle horizontal movement
-        if keys_pressed[pygame.K_LEFT]:
-            self.move_left(walls)
-        if keys_pressed[pygame.K_RIGHT]:
-            self.move_right(walls)
+        # Handle horizontal movement with error checking
+        try:
+            if keys_pressed[pygame.K_LEFT]:
+                self.move_left(walls)
+            if keys_pressed[pygame.K_RIGHT]:
+                self.move_right(walls)
+        except (IndexError, TypeError):
+            # Handle edge case where keys_pressed might be invalid
+            pass
         
         # Update walk animation timer
         if self.walking:
@@ -639,9 +663,12 @@ class Karel:
         else:
             self.walk_timer = 0
         
-        # Handle jumping
-        if keys_pressed[pygame.K_SPACE]:
-            self.jump()
+        # Handle jumping with error checking
+        try:
+            if keys_pressed[pygame.K_SPACE]:
+                self.jump()
+        except (IndexError, TypeError):
+            pass
         
         # Apply physics
         self.apply_gravity()
@@ -652,14 +679,15 @@ class Karel:
         # Check platform, wall, and staircase collision
         self.check_platform_collision(platforms, walls, staircase)
         
+        # Update collision rectangle (moved before death check)
+        self.rect.x = self.x
+        self.rect.y = self.y
+        
         # Check if Karel fell into a gap (below screen)
         if self.y > DEATH_THRESHOLD:
             return True  # Signal death
-        return False
         
-        # Update collision rectangle
-        self.rect.x = self.x
-        self.rect.y = self.y
+        return False
     
     def draw(self, screen):
         """Draw Karel as a blue rectangle with white 'K' label."""
@@ -710,6 +738,9 @@ class KarelGame:
         self.screen_shake = 0
         self.camera_shake_x = 0
         self.camera_shake_y = 0
+        
+        # Performance monitoring
+        self.frame_count = 0
         
         # Lives system
         self.lives = STARTING_LIVES
@@ -864,30 +895,34 @@ class KarelGame:
         # No walls - clean platforming focus
         self.walls = []
         
-        # Optional beepers for score (not required for victory)
+        # Balanced beepers for score (optional but rewarding)
         self.beepers = [
-            # Strategic beepers on platforms and over gaps
-            Beeper(150, GROUND_LEVEL - 20),          # Ground start
-            Beeper(220, 400 - 25),                   # Platform 1
-            Beeper(450, GROUND_LEVEL - 100),         # Above first gap - risky!
-            Beeper(670, 160 - 25),                   # High platform
-            Beeper(850, GROUND_LEVEL - 100),         # Above second gap - risky!
-            Beeper(1050, 280 - 25),                  # Mid platform
-            Beeper(1500, 220 - 25),                  # Platform beeper
-            Beeper(2000, GROUND_LEVEL - 100),        # Above big gap - very risky!
-            Beeper(2800, 280 - 25),                  # Near end
-            Beeper(3050, 280 - 25),                  # Victory platform
+            # Early section - easy collection for confidence building
+            Beeper(150, GROUND_LEVEL - 20),          # Ground start - easy
+            Beeper(250, 400 - 25),                   # Platform 1 - safe
+            Beeper(520, 240 - 25),                   # Higher platform - moderate
+            Beeper(670, 160 - 25),                   # High platform - skillful
+            
+            # Mid section - risk/reward balance
+            Beeper(850, 350 - 25),                   # Landing platform - safe
+            Beeper(1100, 280 - 25),                  # Away from hazard - balanced
+            Beeper(1300, 200 - 25),                  # High route - optional
+            
+            # Advanced section - higher difficulty
+            Beeper(1750, 240 - 25),                  # Precision platform
+            Beeper(2100, 160 - 25),                  # High skill platform
+            Beeper(2950, GROUND_LEVEL - 25),         # Pre-victory reward
         ]
     
     def _create_hazards(self):
         """Create spike hazards at strategic locations."""
         self.hazards = [
-            # Place hazards on platforms for extra challenge (visible red spikes)
-            Hazard(250, 400 - HAZARD_SIZE),          # Platform 1 - side challenge
-            Hazard(1050, 280 - HAZARD_SIZE),         # Mid platform - adds challenge  
-            Hazard(1450, 320 - HAZARD_SIZE),         # Rest platform - optional danger
-            Hazard(2500, 220 - HAZARD_SIZE),         # Final challenge platform
-            Hazard(2750, GROUND_LEVEL - HAZARD_SIZE), # Ground hazard before stairs
+            # Balanced hazard placement for progressive difficulty
+            Hazard(400, 400 - HAZARD_SIZE),          # Platform 1 - tutorial hazard
+            Hazard(1200, 280 - HAZARD_SIZE),         # Mid platform - skill test
+            Hazard(1500, 320 - HAZARD_SIZE),         # Rest platform - avoidable danger
+            Hazard(2400, 220 - HAZARD_SIZE),         # Final challenge platform
+            Hazard(2700, GROUND_LEVEL - HAZARD_SIZE), # Pre-stairs warning
         ]
     
     def _check_beeper_obstacle_collision(self, beeper_x, beeper_y):
@@ -968,8 +1003,8 @@ class KarelGame:
     
     def update(self):
         """
-        Update game logic.
-        Handle Karel movement, physics, wall collision, and beeper collection.
+        Update game logic with comprehensive error checking.
+        Handle Karel movement, physics, collisions, and all game systems.
         """
         # Don't update Karel if game is won or game over
         if not self.game_won and not self.game_over:
@@ -980,24 +1015,35 @@ class KarelGame:
                     self._respawn_karel()
                 return
             
-            # Get currently pressed keys for smooth movement
-            keys_pressed = pygame.key.get_pressed()
+            # Get currently pressed keys for smooth movement with error handling
+            try:
+                keys_pressed = pygame.key.get_pressed()
+            except pygame.error:
+                # Fallback if key state cannot be retrieved
+                keys_pressed = [False] * 512
             
             # Update Karel's position based on input, platforms, and walls
-            if self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase):
-                # Karel fell - trigger death
-                self._karel_died()
+            try:
+                if self.karel.update(keys_pressed, self.platforms, self.walls, self.staircase):
+                    # Karel fell - trigger death
+                    self._karel_died()
+                    return
+            except Exception as e:
+                print(f"WARNING: Karel update error - {e}")
                 return
             
             # Check hazard collisions (only if not invincible)
-            if not self.invincible:
-                karel_rect = pygame.Rect(self.karel.x, self.karel.y, self.karel.width, self.karel.height)
-                for hazard in self.hazards:
-                    if hazard.check_collision(karel_rect):
-                        self._karel_died()
-                        return
+            if not self.invincible and hasattr(self, 'hazards'):
+                try:
+                    karel_rect = pygame.Rect(self.karel.x, self.karel.y, self.karel.width, self.karel.height)
+                    for hazard in self.hazards:
+                        if hazard.check_collision(karel_rect):
+                            self._karel_died()
+                            return
+                except Exception as e:
+                    print(f"WARNING: Hazard collision error - {e}")
             
-            # Update invincibility
+            # Update invincibility timer
             if self.invincible:
                 self.invincibility_timer -= 1
                 if self.invincibility_timer <= 0:
@@ -1016,22 +1062,32 @@ class KarelGame:
             self.camera_shake_x = 0
             self.camera_shake_y = 0
         
-        # Check beeper collection with particle effects
-        for beeper in self.beepers:
-            if beeper.check_collection(self.karel):
-                self.score += beeper.points
-                # Create particles
-                for _ in range(PARTICLE_COUNT):
-                    self.particles.append(Particle(beeper.x, beeper.y))
+        # Check beeper collection with particle effects and error handling
+        try:
+            for beeper in self.beepers:
+                if beeper.check_collection(self.karel):
+                    self.score += beeper.points
+                    # Create particles with error handling
+                    try:
+                        for _ in range(PARTICLE_COUNT):
+                            self.particles.append(Particle(beeper.x, beeper.y))
+                    except Exception as e:
+                        print(f"WARNING: Particle creation error - {e}")
+        except Exception as e:
+            print(f"WARNING: Beeper collection error - {e}")
         
         # Update particles
         self.particles = [p for p in self.particles if p.update()]
         
         # Check victory condition - jump to the flagpole!
-        if not self.game_won:
-            if self.flagpole.check_victory(self.karel):
-                self.game_won = True
-                self.win_timer = WIN_SCREEN_DURATION
+        if not self.game_won and hasattr(self, 'flagpole'):
+            try:
+                if self.flagpole.check_victory(self.karel):
+                    self.game_won = True
+                    self.win_timer = WIN_SCREEN_DURATION
+                    print(f"🎉 VICTORY! Final Score: {self.score}")
+            except Exception as e:
+                print(f"WARNING: Victory check error - {e}")
         
         # Update win screen timer
         if self.game_won and self.win_timer > 0:
@@ -1395,11 +1451,29 @@ class KarelGame:
 def main():
     """
     Entry point for Karel's Code Quest.
-    Creates and runs the game instance.
+    Creates and runs the game instance with comprehensive error handling.
     """
-    # Create and run the game
-    game = KarelGame()
-    game.run()
+    try:
+        print("\n" + "=" * 50)
+        print("🤖 KAREL'S CODE QUEST - DAY 2 COMPLETE")
+        print("Stanford CIP Final Project")
+        print("=" * 50)
+        print("Features: Lives System, Hazards, Animation, Side-scrolling")
+        print("Goal: Reach the flagpole at the end!")
+        print("Controls: Arrow Keys + Spacebar, R to restart")
+        print("=" * 50 + "\n")
+        
+        # Create and run the game
+        game = KarelGame()
+        game.run()
+        
+    except Exception as e:
+        print(f"\n❌ CRITICAL ERROR: {e}")
+        print("Please check pygame installation and dependencies.")
+        return 1
+    
+    print("\n✅ Game session ended successfully. Thanks for playing!")
+    return 0
 
 # Run the game when script is executed directly
 if __name__ == "__main__":
