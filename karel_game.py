@@ -81,15 +81,20 @@ GRID_SIZE = 70               # Size of Karel world grid squares
 BACKGROUND_IMAGE_PATH = "background.png"  # Optional background image
 KAREL_IMAGE_PATH = "karel.png"            # Karel character image
 
-# Color Palette (Authentic Karel World Aesthetic)
+# Color Palette (High Contrast, Accessible Design)
 KAREL_BACKGROUND = (255, 255, 255)  # White background
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
-KAREL_BLUE = (0, 100, 255)          # Karel's signature blue
-GROUND_GREEN = (0, 200, 0)          # Platform green
-GRID_COLOR = BLACK                   # Grid plus signs
-BEEPER_YELLOW = (255, 255, 0)       # Beeper color
-WALL_RED = (200, 0, 0)              # Wall color
+KAREL_BLUE = (0, 80, 200)           # Higher contrast Karel blue
+GROUND_GREEN = (0, 150, 0)          # Higher contrast platform green
+GRID_COLOR = (100, 100, 100)        # Softer grid color for less eye strain
+BEEPER_YELLOW = (255, 200, 0)       # More orange-yellow for better contrast
+WALL_RED = (180, 0, 0)              # Slightly darker red
+UI_BACKGROUND = (240, 240, 240)     # Light gray for UI elements
+UI_TEXT_DARK = (20, 20, 20)         # Very dark gray for high contrast text
+SUCCESS_GREEN = (0, 120, 0)         # Accessible green
+WARNING_ORANGE = (255, 140, 0)      # High contrast orange
+ERROR_RED = (200, 0, 0)             # High contrast red
 
 # Beeper System Constants
 BEEPER_RADIUS = 8                    # Beeper visual size
@@ -126,6 +131,11 @@ DEATH_THRESHOLD = WINDOW_HEIGHT + 50 # Y position that triggers death
 # Hazard System Constants
 HAZARD_SIZE = 20                     # Spike hazard size
 HAZARD_COLOR = (200, 0, 0)           # Red color for spikes
+
+# Instructions Screen Constants
+INSTRUCTION_FONT_SIZE = 28            # Main instruction text size
+INSTRUCTION_TITLE_SIZE = 36           # Title text size
+INSTRUCTION_SMALL_SIZE = 20           # Small text size
 
 # ============================================================================
 # SOUND SYSTEM
@@ -1102,6 +1112,11 @@ class KarelGame:
         self.respawn_timer = 0
         self.respawning = False
         
+        # Instructions screen
+        self.show_instructions = True  # Start with instructions showing
+        self.game_paused = True        # Start paused
+        self.game_started = False      # Track if game has started
+        
         # Death effect system
         self.death_flash = False
         self.death_flash_timer = 0
@@ -1373,7 +1388,7 @@ class KarelGame:
             if event.type == pygame.QUIT:
                 self.running = False
             
-            # Handle ESC key to quit, R key to restart, and M key to mute
+            # Handle ESC key to quit, R key to restart, M key to mute, and I key for instructions
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
@@ -1386,14 +1401,21 @@ class KarelGame:
                     muted = self.sound_manager.toggle_mute()
                     mute_status = "ON" if muted else "OFF"
                     print(f"🔇 Mute: {mute_status}")
+                elif event.key == pygame.K_i:
+                    # Toggle instructions screen
+                    self.show_instructions = not self.show_instructions
+                    self.game_paused = self.show_instructions
+                    if not self.show_instructions:
+                        self.game_started = True  # Mark game as started when instructions are closed
+                    print(f"📖 Instructions: {'ON' if self.show_instructions else 'OFF'}")
     
     def update(self):
         """
         Update game logic with comprehensive error checking.
         Handle Karel movement, physics, collisions, and all game systems.
         """
-        # Don't update Karel if game is won or game over
-        if not self.game_won and not self.game_over:
+        # Don't update Karel if game is won, game over, or instructions are showing
+        if not self.game_won and not self.game_over and not self.game_paused:
             # Handle respawn timer
             if self.respawning:
                 self.respawn_timer -= 1
@@ -1775,61 +1797,119 @@ class KarelGame:
         
         # Draw UI elements
         try:
-            # Score and progress display in top-left corner
-            score_font = pygame.font.Font(None, 28)
+            # Enhanced score and progress display in top-left corner
+            score_font = pygame.font.Font(None, 34)  # Even larger font for accessibility
             beepers_collected = sum(1 for b in self.beepers if b.collected)
             total_beepers = len(self.beepers)
-            score_text = score_font.render(f"Score: {self.score}", True, BLACK)
-            self.screen.blit(score_text, (10, 10))
+            score_text = score_font.render(f"Score: {self.score}  |  Beepers: {beepers_collected}/{total_beepers}", True, UI_TEXT_DARK)
             
-            # Lives display in top-right corner (Mario-style)
-            lives_font = pygame.font.Font(None, 28)
-            hearts = "♥" * self.lives + "♡" * (STARTING_LIVES - self.lives)  # Filled and empty hearts
-            lives_text = lives_font.render(f"Lives: {hearts}", True, BLACK)
-            lives_rect = lives_text.get_rect(topright=(WINDOW_WIDTH - 10, 10))
-            self.screen.blit(lives_text, lives_rect)
+            # High contrast background for better readability
+            score_bg = pygame.Surface((score_text.get_width() + 24, score_text.get_height() + 12))
+            score_bg.fill(UI_BACKGROUND)
+            pygame.draw.rect(score_bg, UI_TEXT_DARK, (0, 0, score_bg.get_width(), score_bg.get_height()), 2)
+            self.screen.blit(score_bg, (8, 8))
+            self.screen.blit(score_text, (20, 14))
             
-            # Victory message only when won
+            # Enhanced lives display in top-right corner with accessible design
+            lives_font = pygame.font.Font(None, 34)  # Larger font for accessibility
+            # Use text-based hearts for better accessibility
+            hearts_filled = "♥" * self.lives
+            hearts_empty = "♡" * (STARTING_LIVES - self.lives)
+            lives_text = lives_font.render(f"Lives: {hearts_filled}{hearts_empty}", True, ERROR_RED if self.lives <= 1 else UI_TEXT_DARK)
+            
+            # High contrast background
+            lives_bg = pygame.Surface((lives_text.get_width() + 24, lives_text.get_height() + 12))
+            lives_bg.fill(UI_BACKGROUND)
+            pygame.draw.rect(lives_bg, UI_TEXT_DARK, (0, 0, lives_bg.get_width(), lives_bg.get_height()), 2)
+            lives_rect = lives_bg.get_rect(topright=(WINDOW_WIDTH - 8, 8))
+            self.screen.blit(lives_bg, lives_rect)
+            
+            lives_text_rect = lives_text.get_rect(topright=(WINDOW_WIDTH - 20, 14))
+            self.screen.blit(lives_text, lives_text_rect)
+            
+            # Victory message only when won - enhanced with better positioning
             if self.game_won:
-                title_font = pygame.font.Font(None, 36)
-                title_text = title_font.render("🎉 VICTORY! Code Quest Complete! 🎉", True, BLACK)
-                title_rect = title_text.get_rect(center=(WINDOW_WIDTH//2, 25))
+                # Main victory message
+                title_font = pygame.font.Font(None, 48)  # Larger font
+                title_text = title_font.render("🎉 VICTORY! Code Quest Complete! 🎉", True, (0, 150, 0))  # Green color
+                
+                # Add white background for better contrast
+                title_bg = pygame.Surface((title_text.get_width() + 30, title_text.get_height() + 15))
+                title_bg.set_alpha(200)
+                title_bg.fill((255, 255, 255))
+                title_bg_rect = title_bg.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 50))
+                self.screen.blit(title_bg, title_bg_rect)
+                
+                title_rect = title_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 50))
                 self.screen.blit(title_text, title_rect)
+                
+                # Add completion message
+                subtitle_font = pygame.font.Font(None, 28)
+                subtitle_text = subtitle_font.render(f"Final Score: {self.score}  |  Beepers Collected: {beepers_collected}/{total_beepers}", True, BLACK)
+                subtitle_rect = subtitle_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 10))
+                self.screen.blit(subtitle_text, subtitle_rect)
             
-            # Instructions at bottom
-            instruction_font = pygame.font.Font(None, 20)
+            # Enhanced game state messages
             if self.game_over:
-                # Game over screen
-                game_over_font = pygame.font.Font(None, 36)
-                game_over_text = game_over_font.render("💀 GAME OVER! 💀", True, BLACK)
-                game_over_rect = game_over_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 20))
+                # Game over screen - enhanced
+                overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+                overlay.set_alpha(180)
+                overlay.fill((200, 0, 0))  # Red overlay
+                self.screen.blit(overlay, (0, 0))
+                
+                game_over_font = pygame.font.Font(None, 64)  # Much larger
+                game_over_text = game_over_font.render("💀 GAME OVER! 💀", True, WHITE)
+                game_over_rect = game_over_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 40))
                 self.screen.blit(game_over_text, game_over_rect)
                 
-                instruction_text = instruction_font.render("Press R to Restart", True, BLACK)
+                instruction_font = pygame.font.Font(None, 32)
+                instruction_text = instruction_font.render("Press R to Restart  |  Press I for Instructions", True, WHITE)
                 instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 + 20))
                 self.screen.blit(instruction_text, instruction_rect)
+                
             elif self.game_won and self.win_timer > 0:
-                # Win screen display
-                instruction_text = instruction_font.render(f"LEVEL COMPLETE! Final Score: {self.score}", True, BLACK)
-                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
-                self.screen.blit(instruction_text, instruction_rect)
+                # Win screen display - already enhanced above
                 if self.win_timer < 60:  # Last second
-                    restart_text = instruction_font.render("Press R to Restart", True, BLACK)
-                    restart_rect = restart_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 40))
+                    restart_font = pygame.font.Font(None, 24)
+                    restart_text = restart_font.render("Press R to Restart  |  Press I for Instructions", True, BLACK)
+                    restart_rect = restart_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 + 30))
                     self.screen.blit(restart_text, restart_rect)
+                    
             elif self.respawning:
-                # Respawning message
-                instruction_text = instruction_font.render(f"Respawning... Lives: {self.lives}", True, BLACK)
-                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
+                # Respawning message - enhanced
+                overlay = pygame.Surface((WINDOW_WIDTH, 50))
+                overlay.set_alpha(150)
+                overlay.fill((255, 255, 0))  # Yellow overlay
+                self.screen.blit(overlay, (0, WINDOW_HEIGHT//2 - 25))
+                
+                instruction_font = pygame.font.Font(None, 32)
+                instruction_text = instruction_font.render(f"⏳ Respawning... Lives Remaining: {self.lives}", True, BLACK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
                 self.screen.blit(instruction_text, instruction_rect)
+                
             elif self.invincible:
-                # Invincibility message
-                instruction_text = instruction_font.render("✨ INVINCIBLE! ✨ Avoid red spikes!", True, BLACK)
-                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
+                # Invincibility message - enhanced
+                flash_alpha = int(128 + 127 * pygame.math.Vector2(1, 0).rotate_rad(self.invincibility_timer * 0.2).y)
+                overlay = pygame.Surface((WINDOW_WIDTH, 40))
+                overlay.set_alpha(flash_alpha)
+                overlay.fill((255, 215, 0))  # Gold overlay
+                self.screen.blit(overlay, (0, WINDOW_HEIGHT - 80))
+                
+                instruction_font = pygame.font.Font(None, 28)
+                instruction_text = instruction_font.render("✨ INVINCIBLE! ✨ Temporary protection from spikes!", True, BLACK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 60))
                 self.screen.blit(instruction_text, instruction_rect)
+                
             else:
-                instruction_text = instruction_font.render("Arrow Keys: Move, Spacebar: Jump, M: Mute, Avoid Spikes, Reach Flagpole!", True, BLACK)
-                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 20))
+                # Normal gameplay instructions - high contrast
+                instruction_bg = pygame.Surface((WINDOW_WIDTH, 35))
+                instruction_bg.fill(UI_BACKGROUND)
+                pygame.draw.line(instruction_bg, UI_TEXT_DARK, (0, 0), (WINDOW_WIDTH, 0), 2)
+                self.screen.blit(instruction_bg, (0, WINDOW_HEIGHT - 35))
+                
+                instruction_font = pygame.font.Font(None, 24)  # Larger for accessibility
+                instruction_text = instruction_font.render("← → : Move  |  SPACE: Jump  |  I: Instructions  |  M: Mute  |  Collect Beepers, Reach GOAL!", True, UI_TEXT_DARK)
+                instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT - 18))
                 self.screen.blit(instruction_text, instruction_rect)
             
         except pygame.error as e:
@@ -1842,8 +1922,101 @@ class KarelGame:
             flash_surface.fill((255, 0, 0))  # Red color
             self.screen.blit(flash_surface, (0, 0))
         
+        # Draw instructions screen overlay if active
+        if self.show_instructions:
+            self.draw_instructions_screen()
+        
         # Update display
         pygame.display.flip()
+    
+    def draw_instructions_screen(self):
+        """
+        Draw comprehensive instructions screen overlay.
+        Covers controls, objective, and CIP branding.
+        """
+        # Semi-transparent dark overlay
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+        overlay.set_alpha(220)
+        overlay.fill((0, 0, 50))  # Dark blue
+        self.screen.blit(overlay, (0, 0))
+        
+        # Main instruction panel
+        panel_width = 500
+        panel_height = 400
+        panel_x = (WINDOW_WIDTH - panel_width) // 2
+        panel_y = (WINDOW_HEIGHT - panel_height) // 2
+        
+        # Panel background
+        panel_bg = pygame.Surface((panel_width, panel_height))
+        panel_bg.fill((240, 240, 240))  # Light gray
+        pygame.draw.rect(panel_bg, (0, 0, 0), (0, 0, panel_width, panel_height), 3)
+        self.screen.blit(panel_bg, (panel_x, panel_y))
+        
+        # Title
+        title_font = pygame.font.Font(None, INSTRUCTION_TITLE_SIZE)
+        title_text = title_font.render("🤖 KAREL'S CODE QUEST", True, (0, 100, 200))
+        title_rect = title_text.get_rect(center=(WINDOW_WIDTH//2, panel_y + 30))
+        self.screen.blit(title_text, title_rect)
+        
+        # Stanford CIP branding
+        brand_font = pygame.font.Font(None, INSTRUCTION_SMALL_SIZE)
+        brand_text = brand_font.render("Stanford CIP Final Project", True, (150, 0, 0))
+        brand_rect = brand_text.get_rect(center=(WINDOW_WIDTH//2, panel_y + 55))
+        self.screen.blit(brand_text, brand_rect)
+        
+        # Instructions content
+        instruction_font = pygame.font.Font(None, INSTRUCTION_FONT_SIZE)
+        small_font = pygame.font.Font(None, 22)
+        
+        # Controls section
+        y_offset = panel_y + 90
+        controls_title = instruction_font.render("🎮 CONTROLS:", True, (0, 0, 0))
+        self.screen.blit(controls_title, (panel_x + 20, y_offset))
+        
+        controls = [
+            "← → Arrow Keys: Move Karel left and right",
+            "SPACEBAR: Jump (only when on ground)", 
+            "R: Restart game (when game over or victory)",
+            "I: Toggle this instructions screen",
+            "M: Mute/unmute sounds",
+            "ESC: Quit game"
+        ]
+        
+        for i, control in enumerate(controls):
+            control_text = small_font.render(control, True, (50, 50, 50))
+            self.screen.blit(control_text, (panel_x + 30, y_offset + 25 + i * 20))
+        
+        # Objective section
+        y_offset += 160
+        objective_title = instruction_font.render("🎯 OBJECTIVE:", True, (0, 0, 0))
+        self.screen.blit(objective_title, (panel_x + 20, y_offset))
+        
+        objective_text = small_font.render("Collect all beepers, then reach the GOAL flagpole!", True, (0, 100, 0))
+        self.screen.blit(objective_text, (panel_x + 30, y_offset + 25))
+        
+        # Karel world references with high contrast
+        y_offset += 65
+        karel_title = instruction_font.render("🏗️ KAREL'S WORLD:", True, UI_TEXT_DARK)
+        self.screen.blit(karel_title, (panel_x + 20, y_offset))
+        
+        karel_refs = [
+            "• Navigate through Karel's grid-based platformer world",
+            "• Avoid red spike hazards that cost you lives",
+            "• Use your programming logic to solve jumping puzzles"
+        ]
+        
+        for i, ref in enumerate(karel_refs):
+            ref_text = small_font.render(ref, True, UI_TEXT_DARK)
+            self.screen.blit(ref_text, (panel_x + 30, y_offset + 28 + i * 22))
+        
+        # Close instruction with high contrast
+        close_font = pygame.font.Font(None, 26)  # Slightly larger for accessibility
+        if not self.game_started:
+            close_text = close_font.render("Press I to start your Code Quest adventure!", True, SUCCESS_GREEN)
+        else:
+            close_text = close_font.render("Press I again to close instructions and resume game", True, WARNING_ORANGE)
+        close_rect = close_text.get_rect(center=(WINDOW_WIDTH//2, panel_y + panel_height - 20))
+        self.screen.blit(close_text, close_rect)
     
     def run(self):
         """
@@ -1924,6 +2097,11 @@ class KarelGame:
         
         # Reset flagpole
         self.flagpole = Flagpole()
+        
+        # Reset instruction screen
+        self.show_instructions = False
+        self.game_paused = False
+        self.game_started = True  # Keep game started after restart
     
     def cleanup(self):
         """
@@ -1942,14 +2120,16 @@ def main():
     Creates and runs the game instance with comprehensive error handling.
     """
     try:
-        print("\n" + "=" * 50)
-        print("🤖 KAREL'S CODE QUEST - DAY 2 COMPLETE")
-        print("Stanford CIP Final Project")
-        print("=" * 50)
-        print("Features: Lives System, Hazards, Animation, Side-scrolling")
-        print("Goal: Reach the flagpole at the end!")
-        print("Controls: Arrow Keys + Spacebar, R to restart")
-        print("=" * 50 + "\n")
+        print("\n" + "=" * 60)
+        print("🤖 KAREL'S CODE QUEST - FINAL PROJECT")
+        print("Stanford Computer Science CIP Program")
+        print("Programming Meets Platforming Adventure")
+        print("=" * 60)
+        print("✨ FEATURES: Instructions Screen, Enhanced UI, Professional Polish")
+        print("🎯 OBJECTIVE: Collect all beepers, then reach the GOAL flagpole!")
+        print("🎮 CONTROLS: Arrow Keys + Spacebar, I for Instructions, R to restart")
+        print("🎓 Made with Karel's programming principles in mind")
+        print("=" * 60 + "\n")
         
         # Create and run the game
         game = KarelGame()
